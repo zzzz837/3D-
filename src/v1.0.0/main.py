@@ -217,9 +217,11 @@ class MainWindow(QMainWindow):
                 "id": c.get("id", 0),
                 "center_3d": c.get("center_3d", {"x": c.get("x",0), "y": c.get("y",0), "z": c.get("z",0)}),
                 "normal": c.get("normal", {"x": c.get("nx",0), "y": c.get("ny",0), "z": c.get("nz",1)}),
-                "width_mm": c.get("width_mm", c.get("side", 10.0)),
-                "height_mm": c.get("height_mm", c.get("side", 10.0)),
+                "radius_mm": c.get("radius_mm", c.get("radius", c.get("width_mm", 10.0)/2)),
+                "width_mm": c.get("width_mm", c.get("radius_mm", 10.0)*2),
+                "height_mm": c.get("height_mm", c.get("radius_mm", 10.0)*2),
                 "rotation_deg": c.get("rotation_deg", c.get("rot", 0.0)),
+                "label": c.get("label", ""),
             })
         profile = {
             "version": "2.0",

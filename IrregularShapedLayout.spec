@@ -26,7 +26,7 @@ if os.path.isdir(lib_dir):
             datas.append((src, os.path.dirname(dst)))
 
 a = Analysis(
-    ['src/main.py'],
+    ['src/v1.0.0/main.py'],
     pathex=[],
     binaries=[],
     datas=datas,

@@ -2,3 +2,7 @@
 /dist
 /document/update/v1.0.0/IrregularShapedLayout/_internal
 /src/core/__pycache__
+*.spec
+/release/IrregularShapedLayout/_internal
+/初级预览版本
+/src/v1.0.0/lib/three/build

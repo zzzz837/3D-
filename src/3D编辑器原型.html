@@ -160,18 +160,16 @@ SL('等待模型加载...');
 // STL 加载代码已移除，改为通过 Bridge loadStl 命令动态加载
 
 // Cell — 圆形Cell + 射线投影贴合 + 预览标签
-const _lblCanvas=document.createElement('canvas');_lblCanvas.width=128;_lblCanvas.height=128;
+const _lblCanvas=document.createElement('canvas');_lblCanvas.width=256;_lblCanvas.height=256;
 const _lblCtx=_lblCanvas.getContext('2d');
 function _drawLabelTex(idText,valText,colorHex){
-  _lblCtx.clearRect(0,0,128,128);
+  _lblCtx.clearRect(0,0,256,256);
   _lblCtx.textAlign='center';
-  _lblCtx.fillStyle='rgba(255,255,255,0.9)';_lblCtx.font='bold 24px "Segoe UI","Microsoft YaHei",sans-serif';
-  _lblCtx.fillText(idText,64,34);
+  _lblCtx.fillStyle='#ffffff';_lblCtx.font='bold 44px "Segoe UI","Microsoft YaHei",sans-serif';
+  _lblCtx.fillText(idText,128,66);
   if(valText!==undefined){
-    _lblCtx.fillStyle=colorHex||'#4ec9b0';_lblCtx.font='bold 56px "Segoe UI","Microsoft YaHei",sans-serif';
-    _lblCtx.fillText(valText,64,96);
-    // subtle outline for visibility against any background
-    _lblCtx.strokeStyle='rgba(0,0,0,0.5)';_lblCtx.lineWidth=3;_lblCtx.strokeText(valText,64,96);
+    _lblCtx.fillStyle=colorHex||'#4ec9b0';_lblCtx.font='bold 72px "Segoe UI","Microsoft YaHei",sans-serif';
+    _lblCtx.fillText(valText,128,166);
   }
   if(!_labelTex){_labelTex=new T.CanvasTexture(_lblCanvas);_labelTex.minFilter=T.LinearFilter;_labelTex.magFilter=T.LinearFilter}
   else _labelTex.needsUpdate=!0;return _labelTex
@@ -184,13 +182,12 @@ function getOrCreateLabel(tex,group,ps,nm,off,id){
   if(!spr){
     const mat=new T.SpriteMaterial({map:_labelTex,transparent:!0,opacity:.95,depthTest:!1,depthWrite:!1});
     spr=new T.Sprite(mat);
-    // Label covers ~90% of cell diameter
-    const s=Math.max(mm2u(12),mm2u(radius*1.8));
+    const s=Math.max(mm2u(14),mm2u(radius*1.6));
     spr.scale.set(s,s,1);
     spr.userData={isLabel:!0,cellId:id};spr.visible=!1;
     group.add(spr);
   }
-  spr.position.copy(ps.clone().addScaledVector(nm,off*.8));
+  spr.position.copy(ps.clone().addScaledVector(nm,off*1.2));
   return spr
 }
 function BC(id){
