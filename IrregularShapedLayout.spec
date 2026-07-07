@@ -11,6 +11,7 @@ datas = []
 for pattern in [
     ('3D编辑器原型.html', '.'),
     ('download.png', '.'),
+    ('src/v1.0.0/stp_convert.py', '.'),
 ]:
     src = os.path.join(PROJECT, pattern[0])
     if os.path.isfile(src):

@@ -1,4 +1,12 @@
 {
+    "python.defaultInterpreterPath": "D:\\Anaconda\\envs\\3d-editor\\python.exe",
+    "python.terminal.activateEnvironment": false,
+    "terminal.integrated.defaultProfile.windows": "PowerShell",
+    "terminal.integrated.env.windows": {
+        "PATH": "D:\\Anaconda\\envs\\3d-editor;D:\\Anaconda\\envs\\3d-editor\\Library\\bin;${env:PATH}",
+        "CONDA_PREFIX": "D:\\Anaconda\\envs\\3d-editor",
+        "CONDA_DEFAULT_ENV": "3d-editor"
+    },
     "python-envs.defaultEnvManager": "ms-python.python:conda",
     "python-envs.defaultPackageManager": "ms-python.python:conda"
 }
