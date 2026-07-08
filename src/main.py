@@ -1,21 +1,21 @@
 """
 3D拟物Layout编辑器 v1.0
-PySide6 + QWebEngineView + Three.js (本地HTTP服务器)
+PyQt5 + QWebEngineView + Three.js (本地HTTP服务器)
 """
 import sys, os, json, base64, zipfile, subprocess
 from pathlib import Path
 from urllib.parse import quote
 from datetime import datetime
 
-from PySide6.QtCore import QUrl, QObject, Signal, QSettings, QTimer
-from PySide6.QtGui import QAction, QIcon
-from PySide6.QtWidgets import (
+from PyQt5.QtCore import QUrl, QObject, pyqtSignal, QSettings, QTimer
+from PyQt5.QtGui import QIcon
+from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QFileDialog, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QSizePolicy, QFrame, QMessageBox, QDialog,
-    QFormLayout, QLineEdit, QSpinBox, QDoubleSpinBox, QDialogButtonBox
+    QFormLayout, QLineEdit, QSpinBox, QDoubleSpinBox, QDialogButtonBox,
+    QAction
 )
-from PySide6.QtWebEngineWidgets import QWebEngineView
-from PySide6.QtWebEngineCore import QWebEnginePage
+from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEnginePage
 
 APP = "3D拟物Layout编辑器"
 VER = "1.0.0"
@@ -31,8 +31,8 @@ BTN = (
 
 
 class Bridge(QObject):
-    statusMsg = Signal(str)
-    exportReady = Signal(str)
+    statusMsg = pyqtSignal(str)
+    exportReady = pyqtSignal(str)
     def __init__(self, parent=None):
         super().__init__(parent); self._wv = None; self._total = 0
     def set_wv(self, wv): self._wv = wv
@@ -47,10 +47,6 @@ class Bridge(QObject):
             o = json.loads(msg); e = o.get("e",""); d = o.get("d",{})
             if e == "ready":
                 self.statusMsg.emit("引擎就绪 | 点击「新建」导入STL模型")
-                # 隐藏独立模式的按钮
-                self._wv.page().runJavaScript(
-                    "try{D('tbLoadStl')&&(D('tbLoadStl').style.display='none');D('tbSaveFile')&&(D('tbSaveFile').style.display='none');D('tbOpenFile')&&(D('tbOpenFile').style.display='none');}catch(e){}"
-                )
             elif e == "state":
                 landed = d.get("landed",0); total = d.get("max",landed+d.get("unlanded",0))
                 self._total = max(total,1); ov = d.get("overlap",0)
@@ -203,8 +199,7 @@ class NewProjectDialog(QDialog):
 
 def find_root():
     if getattr(sys, 'frozen', False):
-        d = Path(sys.executable).parent; i = d / "_internal"
-        return str(i if i.is_dir() else d)
+        return sys._MEIPASS
     return str(Path(__file__).resolve().parent.parent)
 
 
@@ -273,7 +268,7 @@ class MainWindow(QMainWindow):
 
     def _init_webview(self):
         self.webview = QWebEngineView()
-        self.webview.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.webview.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         root = find_root()
         print(f"[init] find_root() = {root}", flush=True)
@@ -364,7 +359,12 @@ class MainWindow(QMainWindow):
             if path.endswith('.3dlp'):
                 self._save_package(path, project)
             else:
-                project["surface_model"]["data_base64"] = getattr(self, '_model_b64', '')
+                # Legacy JSON: embed base64 from cache file for backward compat
+                cache_path = getattr(self, '_model_cache_path', None)
+                if cache_path and os.path.isfile(cache_path):
+                    project["surface_model"]["data_base64"] = base64.b64encode(
+                        Path(cache_path).read_bytes()
+                    ).decode()
                 Path(path).write_text(json.dumps(project, indent=2, ensure_ascii=False), encoding="utf-8")
             self._pending_save_path = None
             self._current_file = path
@@ -373,14 +373,13 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "保存失败", str(e))
 
     def _save_package(self, path, project):
-        model_b64 = getattr(self, '_model_b64', '')
         model_name = project["surface_model"]["file_name"]
-        model_fmt = project["surface_model"]["format"]
-        fmt_bin = model_b64
-        if not fmt_bin:
-            QMessageBox.warning(self, "保存失败", "模型数据为空")
+        cache_path = getattr(self, '_model_cache_path', None)
+        if cache_path and os.path.isfile(cache_path):
+            raw_model = Path(cache_path).read_bytes()
+        else:
+            QMessageBox.warning(self, "保存失败", "模型缓存数据为空")
             return
-        raw_model = base64.b64decode(model_b64)
         with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as zf:
             project_copy = json.loads(json.dumps(project))
             project_copy.pop("surface_model", None)
@@ -392,7 +391,7 @@ class MainWindow(QMainWindow):
     def _new_project(self):
         if not self._confirm_discard(): return
         dlg = NewProjectDialog(self)
-        if dlg.exec() != QDialog.DialogCode.Accepted:
+        if dlg.exec() != QDialog.Accepted:
             return
         info = dlg.get_project_info()
         path = info["model_path"]
@@ -424,11 +423,18 @@ class MainWindow(QMainWindow):
         model_name = Path(path).stem + ".stl" if fmt == 'stl' and path.endswith(('.stp', '.step')) else Path(path).name
         self._model_name = model_name
         self._model_format = fmt
-        b64 = base64.b64encode(raw).decode()
-        self._model_b64 = b64
+        self._model_b64 = None  # 不再用base64传大数据，改用HTTP URL
         self._project_info = info
+
+        # 写入HTTP可访问的缓存目录，避免runJavaScript传超大base64导致崩溃
+        cache_dir = os.path.join(find_root(), "src", "_model_cache")
+        os.makedirs(cache_dir, exist_ok=True)
+        cache_path = os.path.join(cache_dir, model_name)
+        Path(cache_path).write_bytes(raw)
+        self._model_cache_path = cache_path
+
         self.bridge.cmd("loadStl", {
-            "b64": b64,
+            "url": f"/src/_model_cache/{model_name}",
             "name": model_name,
             "format": fmt,
             "total_points": info["channels"],
@@ -464,9 +470,9 @@ class MainWindow(QMainWindow):
                 raw = zf.read(model_name)
             else:
                 raise FileNotFoundError(f"模型文件 {model_name} 在包中未找到")
-        self._model_b64 = base64.b64encode(raw).decode()
         self._model_name = model_name
         self._model_format = Path(model_name).suffix.lstrip('.').lower()
+        self._model_b64 = None
         self._project_info = {
             "name": project_data.get("project_name", ""),
             "created_at": project_data.get("created_at", ""),
@@ -475,8 +481,16 @@ class MainWindow(QMainWindow):
         }
         cells = project_data.get("cells", [])
         total = project_data.get("total_points", len(cells))
+
+        # 写入HTTP缓存目录
+        cache_dir = os.path.join(find_root(), "src", "_model_cache")
+        os.makedirs(cache_dir, exist_ok=True)
+        cache_path = os.path.join(cache_dir, model_name)
+        Path(cache_path).write_bytes(raw)
+        self._model_cache_path = cache_path
+
         self.bridge.cmd("loadStl", {
-            "b64": self._model_b64,
+            "url": f"/src/_model_cache/{model_name}",
             "name": model_name,
             "cells": cells,
             "total_points": total,
@@ -498,13 +512,27 @@ class MainWindow(QMainWindow):
         sm = data.get("surface_model", {})
         model_b64 = sm.get("data_base64", "")
         model_name = sm.get("file_name", "model.stl")
+        self._model_name = model_name
+        self._model_format = sm.get("format", "stl")
+        self._model_b64 = None
+        self._project_info = {
+            "name": data.get("project_name", data.get("display_name", "")),
+            "created_at": data.get("created_at", ""),
+            "unit_mm": data.get("unit_mm", 1.0),
+            "channels": data.get("total_points", 200),
+        }
+        total = data.get("total_points", len(cells))
+
+        # 写入HTTP缓存目录
+        cache_dir = os.path.join(find_root(), "src", "_model_cache")
+        os.makedirs(cache_dir, exist_ok=True)
+        cache_path = os.path.join(cache_dir, model_name)
+
         if model_b64:
-            self._model_b64 = model_b64
-            self._model_name = model_name
-            self._model_format = sm.get("format", "stl")
-            total = data.get("total_points", len(cells))
+            Path(cache_path).write_bytes(base64.b64decode(model_b64))
+            self._model_cache_path = cache_path
             self.bridge.cmd("loadStl", {
-                "b64": model_b64,
+                "url": f"/src/_model_cache/{model_name}",
                 "name": model_name,
                 "cells": cells,
                 "total_points": total,
@@ -514,12 +542,6 @@ class MainWindow(QMainWindow):
         else:
             self.bridge.cmd("loadJsonCells", cells)
             self._sl.setText(f"已打开: {Path(path).name} (v{version}) [无3D模型]")
-        self._project_info = {
-            "name": data.get("project_name", data.get("display_name", "")),
-            "created_at": data.get("created_at", ""),
-            "unit_mm": data.get("unit_mm", 1.0),
-            "channels": data.get("total_points", 200),
-        }
 
     def _save_direct(self):
         path, _ = QFileDialog.getSaveFileName(
@@ -560,11 +582,7 @@ class MainWindow(QMainWindow):
 
 
 def main():
-    if getattr(sys, 'frozen', False):
-        r = find_root()
-        os.environ["QML2_IMPORT_PATH"] = os.path.join(r, "qml_plugins")
-        os.environ["QT_PLUGIN_PATH"] = os.path.join(r, "plugins")
-        os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = os.path.join(r, "plugins", "platforms")
+    os.environ['QTWEBENGINE_CHROMIUM_FLAGS'] = '--no-sandbox --ignore-gpu-blocklist --enable-webgl'
     app = QApplication(sys.argv); win = MainWindow(); win.show(); return app.exec()
 
 if __name__ == "__main__":

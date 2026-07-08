@@ -26,7 +26,7 @@ class TestNewProjectDialog:
 
     @pytest.fixture
     def dialog(self):
-        from PySide6.QtWidgets import QApplication
+        from PyQt5.QtWidgets import QApplication
         app = QApplication.instance()
         if app is None:
             app = QApplication(sys.argv)
