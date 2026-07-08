@@ -476,90 +476,43 @@ function closeAllMenus(){
 D('tbWire').onclick=()=>{if(!M||!RT)return;if(!W){W=new T.LineSegments(new T.WireframeGeometry(M.geometry),new T.LineBasicMaterial({color:0xdfe9ff,transparent:!0,opacity:.08}));RT.add(W)}W.visible=!W.visible;D('tbWire').classList.toggle('active',W.visible);msg(W.visible?'线框模式: ON — 显示模型三角网格骨架':'线框模式: OFF')};
 D('tbPreview3D').onclick=()=>togglePreview();
 
-// ══════════════ Wendland 热力图引擎 ══════════════
-// 独立模块 — 后续可替换为其他渲染后端
+// ══════════ 3D热力图预览 (Jet LUT + sine wave) ══════════
 let PREVIEW=!1,HEAT_INTERVAL=null;
-let HEAT_MODE='simulated';       // 'simulated' | 'real'
-let WENDLAND_R=60;               // query_radius_mm
-let POST_SIGMA=1.5;              // post gaussian sigma (px)
-let _importedValues={};          // 真实模式下的传感器读数 {cellId: value}
-
-// Wendland C2 kernel: φ(r) = max(0, (1-r)⁴(4r+1))
-function wendlandPhi(r){return r>=1?0:Math.pow(1-r,4)*(4*r+1)}
-
-// Jet LUT colormap
 function jetColor(t){t=Math.max(0,Math.min(1,t));let r,g,b;if(t<.125){const s=t/.125;r=0;g=0;b=128+127*s}
 else if(t<.375){const s=(t-.125)/.25;r=0;g=255*s;b=255}
 else if(t<.625){const s=(t-.375)/.25;r=255*s;g=255;b=255*(1-s)}
 else if(t<.875){const s=(t-.625)/.25;r=255;g=255*(1-s);b=0}
 else{const s=(t-.875)/.125;r=255*(1-s*.5);g=0;b=0}
 return new T.Color(r/255,g/255,b/255)}
-
-function getCellValue(id){
-  if(HEAT_MODE==='real')return _importedValues[id]!==undefined?_importedValues[id]:null;
-  // 模拟模式: 自动生成正弦波模拟数据
-  const t=performance.now()/1000;return Math.max(0,(Math.sin(t*Math.PI*2/2+id*Math.PI/Math.max(Object.keys(C).length,1))*.5+.5))
-}
-
+let HEAT_SPEED=2;
 function updateHeatmap(){
   if(!PREVIEW||!M)return;
-  const cells=Object.values(C).filter(c=>c.label||HEAT_MODE==='simulated');
-  if(!cells.length)return;
-  // 收集有效cell及其value
-  const points=cells.map(c=>{
-    const val=getCellValue(c.id);
-    return val!==null?{x:c.x,y:c.y,z:c.z,value:val,id:c.id}:null;
-  }).filter(p=>p!==null);
-  if(!points.length)return;
-  // 归一化value到[0,1]
-  const vals=points.map(p=>p.value);const vmin=Math.min(...vals),vrange=Math.max(...vals)-vmin||1;
-  // 对每个cell计算Wendland加权值（邻域加权平均）
-  const cellWeights={};
-  points.forEach(pi=>{
-    let num=0,den=0;
-    points.forEach(pj=>{
-      const dx=pi.x-pj.x,dy=pi.y-pj.y,dz=pi.z-pj.z;
-      const d=Math.sqrt(dx*dx+dy*dy+dz*dz);
-      if(d>WENDLAND_R)return;
-      const w=wendlandPhi(d/WENDLAND_R);
-      num+=pj.value*w;den+=w;
-    });
-    cellWeights[pi.id]=den>0?(num/den)*Math.min(1,den):0;
-  });
-  // 着色
+  const t=performance.now()/1000,cells=Object.values(C);
   O.forEach(g=>{
-    const id=g.userData.id,c=C[id];if(!c||cellWeights[id]===undefined)return;
-    const val=(cellWeights[id]-vmin)/vrange;
-    const col=jetColor(Math.max(0,Math.min(1,val)));
+    const id=g.userData.id,c=C[id];if(!c)return;
+    const val=Math.max(0,(Math.sin(t*Math.PI*2/HEAT_SPEED+id*Math.PI/Math.max(cells.length,1))*.5+.5));
+    const col=jetColor(val);
     g.children.forEach(ch=>{if(ch.userData&&ch.userData.pch){ch.material.opacity=.85;ch.material.color.copy(col)}});
-    // Update label
     g.children.forEach(ch=>{
       if(ch.userData&&ch.userData.isLabel){
         const topText=c.label||'#'+id;
         const valText=(val*100).toFixed(0);
-        ch.material.map=_drawLabelTex(topText,valText,'#'+col.getHexString());
+        const clrHex='#'+col.getHexString();
+        ch.material.map=_drawLabelTex(topText,valText,clrHex);
         ch.material.needsUpdate=!0;
       }
     });
   });
 }
-
-// --- Heatmap mode switcher & data import ---
-function setHeatMode(mode){HEAT_MODE=mode;msg('热力图模式: '+(mode==='simulated'?'模拟数据':'真实数据'))}
-function importHeatData(jsonStr){
-  try{_importedValues=JSON.parse(jsonStr);setHeatMode('real')}
-  catch(e){msg('JSON解析失败: '+e.message,'e')}
-}
-
 function togglePreview(){
   PREVIEW=!PREVIEW;
   const heatRow=D('heatRow'),heatSpeed=D('heatSpeed'),heatLabel=D('heatSpeedLabel');
   if(PREVIEW){
     E=!1;P=!1;D('tbEdit').textContent='热力图预览';D('tbEdit').classList.remove('active');D('tbPlace').classList.remove('active');
     heatRow.style.display='flex';
-    HEAT_INTERVAL=setInterval(updateHeatmap,80);
+    HEAT_INTERVAL=setInterval(updateHeatmap,60);
     O.forEach(g=>g.children.forEach(ch=>{if(ch.userData&&ch.userData.isLabel)ch.visible=!0}));
-    msg('Wendland热力图 — R='+WENDLAND_R+'mm | 模式:'+(HEAT_MODE==='simulated'?'模拟':'真实'))
+    msg('3D热力图预览 — Jet色阶+正弦波 | 周期:'+HEAT_SPEED+'s | 拖动滑块调速 | 再点按钮退出')
   }else{
     clearInterval(HEAT_INTERVAL);HEAT_INTERVAL=null;E=!0;
     heatRow.style.display='none';
@@ -568,7 +521,8 @@ function togglePreview(){
     msg('已退出预览模式')
   }
 }
-// ══════════════ END Wendland 热力图 ══════════════
+D('heatSpeed').oninput=()=>{HEAT_SPEED=parseFloat(D('heatSpeed').value);D('heatSpeedLabel').textContent=HEAT_SPEED+'s'};
+// ══════════ END 热力图 ══════════
 D('tbReset').onclick=()=>{if(!RT||!CT||!CA)return;const b=new T.Box3().setFromObject(RT),sz=b.getSize(new T.Vector3()),md=Math.max(sz.x,sz.y,sz.z);CT.target.set(0,0,0);CA.position.set(md*.55,-md*1.7,md*.55);CA.lookAt(0,0,0);CT.update()};
 D('tbEdit').onclick=()=>{E=!E;D('tbEdit').textContent=E?'编辑模式':'预览模式';D('tbEdit').classList.toggle('active',E);HL();msg(E?'编辑模式':'预览模式')};
 D('tbPlace').onclick=()=>{P=!P;D('tbPlace').classList.toggle('active',P);if(P&&!E){E=!0;D('tbEdit').textContent='编辑模式';D('tbEdit').classList.add('active')}msg(P?'放置模式：单击曲面添加Cell；再次点击关闭':'放置模式关闭')};

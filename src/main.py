@@ -397,19 +397,29 @@ class MainWindow(QMainWindow):
         if fmt in ('stp', 'step'):
             self._sl.setText("正在转换STEP格式...")
             try:
-                # 在 frozen 模式，stp_converter.py 在 _internal/src/ 下
-                if getattr(sys, 'frozen', False):
-                    converter = os.path.join(find_root(), "src", "stp_converter.py")
-                else:
-                    converter = os.path.join(os.path.dirname(__file__), "stp_converter.py")
-                result = subprocess.run(
-                    [sys.executable, converter, path],
-                    capture_output=True, text=False, timeout=300
-                )
-                if result.returncode != 0:
-                    err = result.stderr.decode('utf-8', errors='replace') if result.stderr else "未知错误"
-                    raise RuntimeError(err)
-                raw = result.stdout
+                import platform
+                if platform.system() == 'Windows':
+                    _root = find_root()
+                    occ_core = os.path.join(_root, 'OCC', 'Core')
+                    if os.path.isdir(occ_core):
+                        os.add_dll_directory(occ_core)
+                    if os.path.isdir(_root):
+                        os.add_dll_directory(_root)
+                    # Also prepend to PATH for DLLs using legacy search
+                    _paths = [occ_core, _root]
+                    os.environ['PATH'] = ';'.join(_paths) + ';' + os.environ.get('PATH', '')
+                    os.environ.setdefault('OCCT_ESSENTIALS_ROOT', _root)
+                converter_dir = os.path.join(find_root(), "src")
+                sys.path.insert(0, converter_dir)
+                from stp_converter import convert_step_to_stl
+                import tempfile as _tmp
+                tmp_out = os.path.join(_tmp.gettempdir(), f"_stp_convert_{os.getpid()}.stl")
+                convert_step_to_stl(path, tmp_out)
+                raw = Path(tmp_out).read_bytes()
+                try: os.unlink(tmp_out)
+                except: pass
+                if not raw or len(raw) < 84:
+                    raise RuntimeError("转换结果为空或无效STL")
                 fmt = 'stl'
             except FileNotFoundError:
                 QMessageBox.warning(self, "STEP转换失败",
@@ -417,8 +427,10 @@ class MainWindow(QMainWindow):
                     "运行: pip install pythonocc-core")
                 return
             except Exception as e:
+                import traceback
+                traceback.print_exc()
                 QMessageBox.warning(self, "STEP转换失败",
-                    f"无法转换STEP文件。请确保已安装 pythonocc-core。\n\n{str(e)}")
+                    f"无法转换STEP文件。\n\n错误类型: {type(e).__name__}\n错误详情: {str(e)[:300]}")
                 return
         else:
             raw = Path(path).read_bytes()
@@ -436,7 +448,7 @@ class MainWindow(QMainWindow):
         self._model_cache_path = cache_path
 
         self.bridge.cmd("loadStl", {
-            "url": f"/src/_model_cache/{model_name}",
+            "url": f"/src/_model_cache/{quote(model_name)}",
             "name": model_name,
             "format": fmt,
             "total_points": info["channels"],
@@ -492,7 +504,7 @@ class MainWindow(QMainWindow):
         self._model_cache_path = cache_path
 
         self.bridge.cmd("loadStl", {
-            "url": f"/src/_model_cache/{model_name}",
+            "url": f"/src/_model_cache/{quote(model_name)}",
             "name": model_name,
             "cells": cells,
             "total_points": total,
@@ -534,7 +546,7 @@ class MainWindow(QMainWindow):
             Path(cache_path).write_bytes(base64.b64decode(model_b64))
             self._model_cache_path = cache_path
             self.bridge.cmd("loadStl", {
-                "url": f"/src/_model_cache/{model_name}",
+                "url": f"/src/_model_cache/{quote(model_name)}",
                 "name": model_name,
                 "cells": cells,
                 "total_points": total,
