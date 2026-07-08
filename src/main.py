@@ -397,40 +397,70 @@ class MainWindow(QMainWindow):
         if fmt in ('stp', 'step'):
             self._sl.setText("正在转换STEP格式...")
             try:
-                import platform
-                if platform.system() == 'Windows':
-                    _root = find_root()
-                    occ_core = os.path.join(_root, 'OCC', 'Core')
-                    if os.path.isdir(occ_core):
-                        os.add_dll_directory(occ_core)
-                    if os.path.isdir(_root):
-                        os.add_dll_directory(_root)
-                    # Also prepend to PATH for DLLs using legacy search
-                    _paths = [occ_core, _root]
-                    os.environ['PATH'] = ';'.join(_paths) + ';' + os.environ.get('PATH', '')
-                    os.environ.setdefault('OCCT_ESSENTIALS_ROOT', _root)
-                converter_dir = os.path.join(find_root(), "src")
-                sys.path.insert(0, converter_dir)
-                from stp_converter import convert_step_to_stl
                 import tempfile as _tmp
                 tmp_out = os.path.join(_tmp.gettempdir(), f"_stp_convert_{os.getpid()}.stl")
-                convert_step_to_stl(path, tmp_out)
+
+                # 找到可用的 Python 解释器运行 stp_converter.py
+                # 优先 in-process（源模式），frozen exe 回退到 subprocess + conda Python
+                converter = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stp_converter.py")
+                if getattr(sys, 'frozen', False):
+                    converter = os.path.join(find_root(), "src", "stp_converter.py")
+
+                if not os.path.isfile(converter):
+                    raise FileNotFoundError(f"找不到转换器: {converter}")
+
+                # 尝试 in-process import (源模式 / exe 已正确打包 OCC 时)
+                try:
+                    _conv_dir = os.path.dirname(converter)
+                    if _conv_dir not in sys.path:
+                        sys.path.insert(0, _conv_dir)
+                    from stp_converter import convert_step_to_stl
+                    convert_step_to_stl(path, tmp_out)
+                except ImportError:
+                    # In-process 失败 → 回退到 subprocess 调用 conda Python
+                    python_exe = None
+                    # 1. 优先当前 conda 环境
+                    conda_prefix = os.environ.get('CONDA_PREFIX', '')
+                    if conda_prefix:
+                        candidate = os.path.join(conda_prefix, 'python.exe')
+                        if os.path.isfile(candidate):
+                            python_exe = candidate
+                    # 2. 回退到已知 3d-editor 路径
+                    if not python_exe:
+                        candidate = r'D:\Anaconda\envs\3d-editor\python.exe'
+                        if os.path.isfile(candidate):
+                            python_exe = candidate
+                    # 3. 回退到 base conda
+                    if not python_exe:
+                        candidate = r'D:\Anaconda\python.exe'
+                        if os.path.isfile(candidate):
+                            python_exe = candidate
+                    if not python_exe:
+                        raise RuntimeError(
+                            "未找到可用的 Python 解释器。请安装 pythonocc-core:\n"
+                            "conda activate 3d-editor && pip install pythonocc-core"
+                        )
+                    result = subprocess.run(
+                        [python_exe, converter, path, tmp_out],
+                        capture_output=True, text=True, timeout=300
+                    )
+                    if result.returncode != 0:
+                        raise RuntimeError(result.stderr.strip() or "转换失败")
+
                 raw = Path(tmp_out).read_bytes()
                 try: os.unlink(tmp_out)
                 except: pass
                 if not raw or len(raw) < 84:
                     raise RuntimeError("转换结果为空或无效STL")
                 fmt = 'stl'
-            except FileNotFoundError:
-                QMessageBox.warning(self, "STEP转换失败",
-                    "未找到 stp_converter.py，请确保已安装 pythonocc-core\n"
-                    "运行: pip install pythonocc-core")
+            except FileNotFoundError as e:
+                QMessageBox.warning(self, "STEP转换失败", str(e))
                 return
             except Exception as e:
                 import traceback
                 traceback.print_exc()
                 QMessageBox.warning(self, "STEP转换失败",
-                    f"无法转换STEP文件。\n\n错误类型: {type(e).__name__}\n错误详情: {str(e)[:300]}")
+                    f"{type(e).__name__}: {str(e)[:500]}")
                 return
         else:
             raw = Path(path).read_bytes()
