@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>3D Layout 编辑器 — 手套 v2.0</title>
+<title>3D拟物Layout编辑器</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:#1e1e1e;color:#ccc;height:100vh;display:flex;flex-direction:column;user-select:none;overflow:hidden}
@@ -53,7 +53,7 @@ body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:#1e1e1e;colo
 <div class="menu-item" data-menu="edit">编辑<div class="menu-dropdown" id="menuEdit"><div class="menu-entry" data-action="togglePlace">📍 放置模式<span class="key">P</span></div><div class="menu-entry" data-action="toggleEdit">✏️ 编辑/预览切换<span class="key">Tab</span></div><div class="menu-sep"></div><div class="menu-entry" data-action="undo">↩ 撤销<span class="key">Ctrl+Z</span></div><div class="menu-entry" data-action="redo">↪ 重做<span class="key">Ctrl+Y</span></div><div class="menu-entry" data-action="deleteCell">🗑 删除选中<span class="key">Del</span></div></div></div>
 <div class="menu-item" data-menu="view">视图<div class="menu-dropdown" id="menuView"><div class="menu-entry" data-action="togglePreview">👁 3D热力图预览</div><div class="menu-entry" data-action="wire">📐 线框模式<span class="key">W</span></div><div class="menu-entry" data-action="reset">🔄 重置视角</div></div></div>
 <div class="menu-item" data-menu="tools">工具<div class="menu-dropdown" id="menuTools"><div class="menu-entry" data-action="toggleCollision">🛡 碰撞检测</div><div class="menu-entry" data-action="detectGaps">🔍 缺口检测</div></div></div>
-<span style="color:#888;font-size:11px;margin-left:8px">3D Layout 编辑器 v2.0</span></div>
+<span style="color:#888;font-size:11px;margin-left:8px">3D拟物Layout编辑器</span></div>
 <div class="toolbar">
   <button id="tbPreview3D">3D预览</button>
   <button id="tbPlace">放置模式</button><button id="tbWire">线框</button><button id="tbReset">重置视角</button><button id="tbEdit" class="active">编辑模式</button>
@@ -203,7 +203,7 @@ function getOrCreateLabel(tex,group,ps,nm,off,id){
   if(!spr){
     const mat=new T.SpriteMaterial({map:_labelTex,transparent:!0,opacity:.95,depthTest:!1,depthWrite:!1});
     spr=new T.Sprite(mat);
-    const s=Math.max(mm2u(14),mm2u(radius*1.6));
+    const s=Math.max(mm2u(14),mm2u(radius*2.5));
     spr.scale.set(s,s,1);
     spr.userData={isLabel:!0,cellId:id};spr.visible=!1;
     group.add(spr);
@@ -449,10 +449,10 @@ document.querySelectorAll('.menu-entry').forEach(entry=>{
     e.stopPropagation();
     closeAllMenus();
     const action=entry.dataset.action;
-    if(action==='loadStl'){if(typeof window.pyCommand!=='undefined')msg('请使用Python工具栏的「新建」导入模型')}
-    else if(action==='openJson'){if(typeof window.pyCommand!=='undefined')msg('请使用Python工具栏的「打开」加载项目')}
-    else if(action==='saveJson'){if(typeof window.pyCommand!=='undefined')msg('请使用Python工具栏的「保存」')}
-    else if(action==='saveAs'){if(typeof window.pyCommand!=='undefined')msg('请使用Python工具栏的「另存为」')}
+    if(action==='loadStl'){console.log('BRIDGE:'+JSON.stringify({e:'menuAction',d:{action:'new'}}))}
+    else if(action==='openJson'){console.log('BRIDGE:'+JSON.stringify({e:'menuAction',d:{action:'open'}}))}
+    else if(action==='saveJson'){console.log('BRIDGE:'+JSON.stringify({e:'menuAction',d:{action:'save'}}))}
+    else if(action==='saveAs'){console.log('BRIDGE:'+JSON.stringify({e:'menuAction',d:{action:'saveAs'}}))}
     else if(action==='screenshot'){if(typeof window.pyCommand!=='undefined'){window.pyCommand('screenshot',{path:''})}else{const c=document.createElement('canvas');c.width=R.domElement.width;c.height=R.domElement.height;c.getContext('2d').drawImage(R.domElement,0,0);const a=document.createElement('a');a.href=c.toDataURL('image/png');a.download='screenshot.png';a.click()}}
     else if(action==='togglePlace'){D('tbPlace').click()}
     else if(action==='toggleEdit'){D('tbEdit').click()}
@@ -476,56 +476,99 @@ function closeAllMenus(){
 D('tbWire').onclick=()=>{if(!M||!RT)return;if(!W){W=new T.LineSegments(new T.WireframeGeometry(M.geometry),new T.LineBasicMaterial({color:0xdfe9ff,transparent:!0,opacity:.08}));RT.add(W)}W.visible=!W.visible;D('tbWire').classList.toggle('active',W.visible);msg(W.visible?'线框模式: ON — 显示模型三角网格骨架':'线框模式: OFF')};
 D('tbPreview3D').onclick=()=>togglePreview();
 
-// ══════════ 3D热力图预览 (Jet LUT + sine wave) ══════════
+// ══════════════ Wendland 热力图引擎 ══════════════
+// 独立模块 — 后续可替换为其他渲染后端
 let PREVIEW=!1,HEAT_INTERVAL=null;
+let HEAT_MODE='simulated';       // 'simulated' | 'real'
+let WENDLAND_R=60;               // query_radius_mm
+let POST_SIGMA=1.5;              // post gaussian sigma (px)
+let _importedValues={};          // 真实模式下的传感器读数 {cellId: value}
+
+// Wendland C2 kernel: φ(r) = max(0, (1-r)⁴(4r+1))
+function wendlandPhi(r){return r>=1?0:Math.pow(1-r,4)*(4*r+1)}
+
+// Jet LUT colormap
 function jetColor(t){t=Math.max(0,Math.min(1,t));let r,g,b;if(t<.125){const s=t/.125;r=0;g=0;b=128+127*s}
 else if(t<.375){const s=(t-.125)/.25;r=0;g=255*s;b=255}
 else if(t<.625){const s=(t-.375)/.25;r=255*s;g=255;b=255*(1-s)}
 else if(t<.875){const s=(t-.625)/.25;r=255;g=255*(1-s);b=0}
 else{const s=(t-.875)/.125;r=255*(1-s*.5);g=0;b=0}
 return new T.Color(r/255,g/255,b/255)}
-let HEAT_SPEED=2;
+
+function getCellValue(id){
+  if(HEAT_MODE==='real')return _importedValues[id]!==undefined?_importedValues[id]:null;
+  // 模拟模式: 自动生成正弦波模拟数据
+  const t=performance.now()/1000;return Math.max(0,(Math.sin(t*Math.PI*2/2+id*Math.PI/Math.max(Object.keys(C).length,1))*.5+.5))
+}
+
 function updateHeatmap(){
   if(!PREVIEW||!M)return;
-  const t=performance.now()/1000,cells=Object.values(C);
+  const cells=Object.values(C).filter(c=>c.label||HEAT_MODE==='simulated');
+  if(!cells.length)return;
+  // 收集有效cell及其value
+  const points=cells.map(c=>{
+    const val=getCellValue(c.id);
+    return val!==null?{x:c.x,y:c.y,z:c.z,value:val,id:c.id}:null;
+  }).filter(p=>p!==null);
+  if(!points.length)return;
+  // 归一化value到[0,1]
+  const vals=points.map(p=>p.value);const vmin=Math.min(...vals),vrange=Math.max(...vals)-vmin||1;
+  // 对每个cell计算Wendland加权值（邻域加权平均）
+  const cellWeights={};
+  points.forEach(pi=>{
+    let num=0,den=0;
+    points.forEach(pj=>{
+      const dx=pi.x-pj.x,dy=pi.y-pj.y,dz=pi.z-pj.z;
+      const d=Math.sqrt(dx*dx+dy*dy+dz*dz);
+      if(d>WENDLAND_R)return;
+      const w=wendlandPhi(d/WENDLAND_R);
+      num+=pj.value*w;den+=w;
+    });
+    cellWeights[pi.id]=den>0?(num/den)*Math.min(1,den):0;
+  });
+  // 着色
   O.forEach(g=>{
-    const id=g.userData.id,c=C[id];if(!c)return;
-    const val=Math.max(0,(Math.sin(t*Math.PI*2/HEAT_SPEED+id*Math.PI/Math.max(cells.length,1))*.5+.5));
-    const col=jetColor(val);
+    const id=g.userData.id,c=C[id];if(!c||cellWeights[id]===undefined)return;
+    const val=(cellWeights[id]-vmin)/vrange;
+    const col=jetColor(Math.max(0,Math.min(1,val)));
     g.children.forEach(ch=>{if(ch.userData&&ch.userData.pch){ch.material.opacity=.85;ch.material.color.copy(col)}});
-    // Update label sprite text (no box, clean text)
+    // Update label
     g.children.forEach(ch=>{
       if(ch.userData&&ch.userData.isLabel){
         const topText=c.label||'#'+id;
         const valText=(val*100).toFixed(0);
-        const clrHex='#'+col.getHexString();
-        ch.material.map=_drawLabelTex(topText,valText,clrHex);
+        ch.material.map=_drawLabelTex(topText,valText,'#'+col.getHexString());
         ch.material.needsUpdate=!0;
       }
     });
   });
 }
+
+// --- Heatmap mode switcher & data import ---
+function setHeatMode(mode){HEAT_MODE=mode;msg('热力图模式: '+(mode==='simulated'?'模拟数据':'真实数据'))}
+function importHeatData(jsonStr){
+  try{_importedValues=JSON.parse(jsonStr);setHeatMode('real')}
+  catch(e){msg('JSON解析失败: '+e.message,'e')}
+}
+
 function togglePreview(){
   PREVIEW=!PREVIEW;
-  const heatRow=D('heatRow'),slider=D('heatSpeed'),label=D('heatSpeedLabel');
+  const heatRow=D('heatRow'),heatSpeed=D('heatSpeed'),heatLabel=D('heatSpeedLabel');
   if(PREVIEW){
     E=!1;P=!1;D('tbEdit').textContent='热力图预览';D('tbEdit').classList.remove('active');D('tbPlace').classList.remove('active');
     heatRow.style.display='flex';
-    HEAT_INTERVAL=setInterval(updateHeatmap,60);
-    // Show all label sprites
+    HEAT_INTERVAL=setInterval(updateHeatmap,80);
     O.forEach(g=>g.children.forEach(ch=>{if(ch.userData&&ch.userData.isLabel)ch.visible=!0}));
-    msg('3D热力图预览 — Jet色阶+正弦波 | 周期:'+HEAT_SPEED+'s | 拖动滑块调速 | 再点按钮退出')
+    msg('Wendland热力图 — R='+WENDLAND_R+'mm | 模式:'+(HEAT_MODE==='simulated'?'模拟':'真实'))
   }else{
     clearInterval(HEAT_INTERVAL);HEAT_INTERVAL=null;E=!0;
     heatRow.style.display='none';
-    // Hide all label sprites
     O.forEach(g=>g.children.forEach(ch=>{if(ch.userData&&ch.userData.isLabel){ch.visible=!1;ch.material.map=null}}));
     D('tbEdit').textContent='编辑模式';D('tbEdit').classList.add('active');HL();
     msg('已退出预览模式')
   }
 }
-D('heatSpeed').oninput=()=>{HEAT_SPEED=parseFloat(D('heatSpeed').value);D('heatSpeedLabel').textContent=HEAT_SPEED+'s'};
-// ══════════ END 热力图 ══════════
+// ══════════════ END Wendland 热力图 ══════════════
 D('tbReset').onclick=()=>{if(!RT||!CT||!CA)return;const b=new T.Box3().setFromObject(RT),sz=b.getSize(new T.Vector3()),md=Math.max(sz.x,sz.y,sz.z);CT.target.set(0,0,0);CA.position.set(md*.55,-md*1.7,md*.55);CA.lookAt(0,0,0);CT.update()};
 D('tbEdit').onclick=()=>{E=!E;D('tbEdit').textContent=E?'编辑模式':'预览模式';D('tbEdit').classList.toggle('active',E);HL();msg(E?'编辑模式':'预览模式')};
 D('tbPlace').onclick=()=>{P=!P;D('tbPlace').classList.toggle('active',P);if(P&&!E){E=!0;D('tbEdit').textContent='编辑模式';D('tbEdit').classList.add('active')}msg(P?'放置模式：单击曲面添加Cell；再次点击关闭':'放置模式关闭')};

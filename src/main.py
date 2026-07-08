@@ -33,6 +33,7 @@ BTN = (
 class Bridge(QObject):
     statusMsg = pyqtSignal(str)
     exportReady = pyqtSignal(str)
+    menuAction = pyqtSignal(str)
     def __init__(self, parent=None):
         super().__init__(parent); self._wv = None; self._total = 0
     def set_wv(self, wv): self._wv = wv
@@ -72,6 +73,8 @@ class Bridge(QObject):
                     f"模型加载完成 | 面:{d.get('faces',0)} | 面积:{d.get('surfaceArea','?')}mm²"
                     + (f" | 建议通道:{rec}" if rec else "")
                 )
+            elif e == "menuAction":
+                self.menuAction.emit(d.get("action",""))
         except Exception: pass
     @property
     def total_channels(self): return max(self._total, 1)
@@ -240,6 +243,7 @@ class MainWindow(QMainWindow):
         self.bridge = Bridge()
         self.bridge.exportReady.connect(self._on_export)
         self.bridge.statusMsg.connect(lambda m: self._sl.setText(m))
+        self.bridge.menuAction.connect(self._on_menu_action)
 
         self._init_toolbar()
         self._init_webview()
@@ -253,13 +257,7 @@ class MainWindow(QMainWindow):
         for label, cb in [
             ("新建", self._new_project), ("打开", self._open_profile),
             ("保存", self._save_direct), ("另存为", self._save_as),
-            (None,None), ("撤销", lambda: self.bridge.cmd("undo")),
-            ("重做", lambda: self.bridge.cmd("redo")), (None,None),
-            ("3D预览", lambda: self.bridge.cmd("togglePreview")),
-            ("截图PNG", self._screenshot),
-            ("放置", lambda: self.bridge.cmd("togglePlace")),
-            ("线框", lambda: self.bridge.cmd("wire")),
-            ("重置", lambda: self.bridge.cmd("reset")),
+            (None,None), ("截图PNG", self._screenshot),
         ]:
             if label is None: hl.addSpacing(8); continue
             btn = QPushButton(label); btn.setStyleSheet(BTN); btn.setFixedHeight(26)
@@ -399,7 +397,11 @@ class MainWindow(QMainWindow):
         if fmt in ('stp', 'step'):
             self._sl.setText("正在转换STEP格式...")
             try:
-                converter = os.path.join(os.path.dirname(__file__), "stp_converter.py")
+                # 在 frozen 模式，stp_converter.py 在 _internal/src/ 下
+                if getattr(sys, 'frozen', False):
+                    converter = os.path.join(find_root(), "src", "stp_converter.py")
+                else:
+                    converter = os.path.join(os.path.dirname(__file__), "stp_converter.py")
                 result = subprocess.run(
                     [sys.executable, converter, path],
                     capture_output=True, text=False, timeout=300
@@ -556,6 +558,12 @@ class MainWindow(QMainWindow):
 
     def _save_as(self):
         self._save_direct()
+
+    def _on_menu_action(self, action):
+        if action == 'new': self._new_project()
+        elif action == 'open': self._open_profile()
+        elif action == 'save': self._save_direct()
+        elif action == 'saveAs': self._save_as()
 
     def _screenshot(self):
         """导出当前3D视图为PNG截图"""
