@@ -223,3 +223,81 @@
 | 验收 Agent | | | |
 
 **结论**: □ 通过 / □ 失败 / □ 阻塞
+
+---
+
+## 9. beta4 进展 (2026-07-08 ~ 2026-07-09)
+
+### 9.1 已解决问题
+
+| # | 问题 | 方案 |
+|---|------|------|
+| 1 | Wendland力场三模式 | manual/simulated/real 数据源 + vertexColors 渲染 |
+| 2 | 压力归一化方案B | 用户定义 pressureMin/pressureMax 固定范围 |
+| 3 | 专用压力输入框 | propPressure 独立于 label，label 改为备注 |
+| 4 | 工具栏重构 | 力场预览/模拟压力/导入数据 + 力场设置面板 |
+| 5 | 模拟压力(正弦波) | 每Cell独立动态pressure，与力场预览解耦 |
+| 6 | JSON导入格式 | `{"cells":{id:value},"range":[min,max]}` |
+| 7 | 性能缓存架构 | _vpos(18MB) + CSR Influence Cache + _cv覆盖顶点遍历 |
+| 8 | 手动模式零持续开销 | 仅压力变化时着色；模拟模式500ms间隔 |
+| 9 | 代码清理 | 删除_recompute死代码、重复pressure键、_hotspots |
+| 10 | 缺口检测移除 | 删除detectGaps/clearGaps函数+UI(~27行) |
+| 11 | 性能二次优化 | applyFieldColors只遍历_cv，不清除150万顶点(↓93%) |
+| 12 | .3dlp模型加载bug | setupModel加_needsRender + model_format字段 + 文件验证 |
+| 13 | pressure保存丢失 | _on_export补全pressure字段 |
+| 14 | _dirty标记 | state消息触发dirty=True，loading期屏蔽 |
+
+### 9.2 测试
+
+```
+36/36 passed (test_force_field 29 + test_main 7)
+```
+
+---
+
+## 10. v1.0.1 进展 (2026-07-09)
+
+### 10.1 已解决问题
+
+| # | 问题 | 方案 |
+|---|------|------|
+| 1 | 删除导入数据模式 | real mode/importFieldJSON/_importedField/tbImportField全面清理 |
+| 2 | 压力归一化0~1 | 删除pressureMin/pressureMax UI+变量+readPressureRange |
+| 3 | propPressure 0~1 | placeholder "0~1"，clamp [0,1]，保存为0~1小数 |
+| 4 | 模拟压力三预设 | Uniform(0.2~0.8)/Wave(0.15~0.85)/Pulse(0.1~1.0) |
+| 5 | 模拟预设UI | 独立下拉框，仅模拟模式显示，默认Wave |
+| 6 | 帧率优化 | SIM_INTERVAL_MS=40 (25FPS)，performance.now()计时 |
+| 7 | 大模型优化提示 | optRow显示"性能优化已启用" |
+| 8 | BVH容错 | computeBoundsTree失败→回退THREE.Mesh.prototype.raycast |
+| 9 | loadStl入口清理 | 清理timers/preview/M/cache，保留unitMM/radius/MAX |
+| 10 | .3dlp全链路日志 | Python(文件/cache/URL)+JS(fetch/parse/setup)+失败弹窗 |
+| 11 | 项目切换清理(Q19) | loadStl入口轻量清理(不清unitMM/radius/MAX) |
+| 12 | STP力场预览(Q20) | BVH容错确保STP射线检测可用 |
+| 13 | STP.3dlp模型丢失(Q21) | loadStl清理确保旧场景完全移除 |
+| 14 | clearGapSpheres报错(Q22) | 删除resetAll中无效调用 |
+| 15 | Cell贴合精度(Q23) | BVH失败→原生raycast确保正确射线 |
+| 16 | 力场重建起点(Q24) | 同Q23修复确保Cell位置正确 |
+
+### 10.2 测试
+
+```
+45/45 passed (test_force_field 29原有 + 9预设 + test_main 7)
+```
+
+### 10.3 已知遗留
+
+| # | 问题 | 状态 |
+|---|------|------|
+| 1 | **大面片STL(~150万面)导入失败/超时** | 待排查 — 可能STLLoader.parse主线程解析超时或内存不足 |
+| 2 | **STP模型力场预览不显示热力图** | 待排查 — Cell位置恢复正确但Wendland重建不生效 |
+| 3 | STP转换后Cell比例可能偏小 | 与autoDetectUnit/setUnit时序相关 |
+| 4 | OBJ多mesh仅加载第一个 | 不影响当前使用(STP→STL为主) |
+
+### 10.4 改动文件
+
+| 文件 | 改动量 | 说明 |
+|------|--------|------|
+| `src/3D编辑器原型.html` | +121/-53 | v1.0.1全部JS改动 |
+| `src/main.py` | +15/-0 | Python侧日志+错误弹窗 |
+| `src/tests/test_force_field.py` | +93 | 9项模拟预设测试 |
+| `document/update/v1.0.1/` | 新增 | 版本需求+问题清单 |
