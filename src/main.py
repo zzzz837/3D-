@@ -52,6 +52,8 @@ class Bridge(QObject):
                 landed = d.get("landed",0); total = d.get("max",landed+d.get("unlanded",0))
                 self._total = max(total,1); ov = d.get("overlap",0)
                 self.statusMsg.emit(f"已落地:{landed}/{self._total} | {'重叠:'+str(ov) if ov else '无重叠'}")
+                if not getattr(self, '_loading', False):
+                    self._dirty = True
             elif e == "exportCells":
                 self.exportReady.emit(json.dumps(d))
             elif e == "screenshotData":
@@ -237,6 +239,7 @@ class MainWindow(QMainWindow):
             self.setWindowIcon(QIcon(icon_path))
 
         self._profile = None; self._current_file = None; self._dirty = False
+        self._loading = False
         self._recent_files = QSettings(ORG, APP).value("recentFiles", []) or []
         self._project_info = {}  # 当前项目元信息
 
@@ -340,6 +343,7 @@ class MainWindow(QMainWindow):
                 "height_mm": c.get("height_mm", c.get("radius_mm", 10.0)*2),
                 "rotation_deg": c.get("rotation_deg", c.get("rot", 0.0)),
                 "label": c.get("label", ""),
+                "pressure": c.get("pressure", 0),
             })
         project = {
             "version": "2.0",
@@ -366,6 +370,7 @@ class MainWindow(QMainWindow):
                 Path(path).write_text(json.dumps(project, indent=2, ensure_ascii=False), encoding="utf-8")
             self._pending_save_path = None
             self._current_file = path
+            self._dirty = False
             self._sl.setText(f"已保存: {Path(path).name} ({len(cells_json)}个Cell)")
         except Exception as e:
             QMessageBox.warning(self, "保存失败", str(e))
@@ -380,8 +385,9 @@ class MainWindow(QMainWindow):
             return
         with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as zf:
             project_copy = json.loads(json.dumps(project))
-            project_copy.pop("surface_model", None)
+            fmt = project_copy.pop("surface_model", {}).get("format", "stl")
             project_copy["model_file"] = model_name
+            project_copy["model_format"] = fmt
             zf.writestr("project.json", json.dumps(project_copy, indent=2, ensure_ascii=False))
             zf.writestr(model_name, raw_model)
         self._current_file = path
@@ -477,16 +483,18 @@ class MainWindow(QMainWindow):
         Path(cache_path).write_bytes(raw)
         self._model_cache_path = cache_path
 
+        self._loading = True
         self.bridge.cmd("loadStl", {
             "url": f"/src/_model_cache/{quote(model_name)}",
             "name": model_name,
             "format": fmt,
             "total_points": info["channels"],
         })
+        QTimer.singleShot(3000, lambda: setattr(self, '_loading', False))
+        QTimer.singleShot(3500, lambda: setattr(self, '_dirty', False))
         if info["unit_mm"] != 1.0:
             self.bridge.cmd("setUnit", {"unit": info["unit_mm"]})
         self._current_file = None
-        self._dirty = False
         self._sl.setText(f"项目: {info['name']} | 模型: {model_name} | 通道: {info['channels']}")
 
     def _open_profile(self):
@@ -498,11 +506,13 @@ class MainWindow(QMainWindow):
         if not path: return
         try:
             if path.endswith('.3dlp'):
+                self._loading = True
                 self._open_package(path)
+                QTimer.singleShot(3000, lambda: setattr(self, '_loading', False))
+                QTimer.singleShot(3500, lambda: setattr(self, '_dirty', False))
             else:
                 self._open_legacy_json(path)
             self._current_file = path
-            self._dirty = False
         except Exception as e:
             QMessageBox.warning(self, "打开失败", str(e))
 
@@ -515,7 +525,7 @@ class MainWindow(QMainWindow):
             else:
                 raise FileNotFoundError(f"模型文件 {model_name} 在包中未找到")
         self._model_name = model_name
-        self._model_format = Path(model_name).suffix.lstrip('.').lower()
+        self._model_format = project_data.get("model_format") or Path(model_name).suffix.lstrip('.').lower()
         self._model_b64 = None
         self._project_info = {
             "name": project_data.get("project_name", ""),
@@ -526,12 +536,17 @@ class MainWindow(QMainWindow):
         cells = project_data.get("cells", [])
         total = project_data.get("total_points", len(cells))
 
-        # 写入HTTP缓存目录
         cache_dir = os.path.join(find_root(), "src", "_model_cache")
         os.makedirs(cache_dir, exist_ok=True)
         cache_path = os.path.join(cache_dir, model_name)
         Path(cache_path).write_bytes(raw)
         self._model_cache_path = cache_path
+
+        # Verify file written completely before sending fetch URL
+        actual_size = Path(cache_path).stat().st_size
+        if actual_size != len(raw):
+            QMessageBox.warning(self, "文件错误", f"模型缓存写入不完整: {actual_size} vs {len(raw)}")
+            return
 
         self.bridge.cmd("loadStl", {
             "url": f"/src/_model_cache/{quote(model_name)}",

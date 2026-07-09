@@ -30,8 +30,6 @@ body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:#1e1e1e;colo
 .basket .landed-tag:hover{background:#0e639c;border-color:#0e639c}.basket .landed-tag.focus{background:#0e639c;border-color:#1177bb}
 .viewport{flex:1;position:relative;overflow:hidden;min-width:400px}.viewport canvas{display:block}
 .vp-hint{position:absolute;bottom:12px;left:12px;font-size:10px;color:#666;pointer-events:none}
-.gap-warn{position:absolute;top:0;left:0;right:0;background:rgba(248,81,73,0.88);color:#fff;font-size:11px;padding:6px 14px;z-index:10;display:none;text-align:center}
-.gap-warn button{background:rgba(255,255,255,0.2);color:#fff;border:1px solid rgba(255,255,255,0.4);padding:2px 8px;border-radius:3px;cursor:pointer;margin-left:8px}
 .props{width:260px;min-width:220px;background:#252526;border-left:1px solid #3a3a3a;padding:12px;display:flex;flex-direction:column;gap:12px;font-size:12px;overflow-y:auto}
 .props .group{background:#2d2d2d;border:1px solid #3a3a3a;border-radius:6px;padding:10px}
 .props .field{display:flex;align-items:center;padding:4px 0}.props .field label{width:75px;color:#999;font-size:11px}
@@ -51,15 +49,21 @@ body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:#1e1e1e;colo
 <div class="menubar">
 <div class="menu-item" data-menu="file">文件<div class="menu-dropdown" id="menuFile"><div class="menu-entry" data-action="loadStl">📂 导入模型<span class="key">Ctrl+N</span></div><div class="menu-entry" data-action="openJson">📁 打开项目<span class="key">Ctrl+O</span></div><div class="menu-entry" data-action="saveJson">💾 保存项目<span class="key">Ctrl+S</span></div><div class="menu-entry" data-action="saveAs">📋 另存为<span class="key">Ctrl+Shift+S</span></div><div class="menu-sep"></div><div class="menu-entry" data-action="screenshot">📷 截图PNG</div></div></div>
 <div class="menu-item" data-menu="edit">编辑<div class="menu-dropdown" id="menuEdit"><div class="menu-entry" data-action="togglePlace">📍 放置模式<span class="key">P</span></div><div class="menu-entry" data-action="toggleEdit">✏️ 编辑/预览切换<span class="key">Tab</span></div><div class="menu-sep"></div><div class="menu-entry" data-action="undo">↩ 撤销<span class="key">Ctrl+Z</span></div><div class="menu-entry" data-action="redo">↪ 重做<span class="key">Ctrl+Y</span></div><div class="menu-entry" data-action="deleteCell">🗑 删除选中<span class="key">Del</span></div></div></div>
-<div class="menu-item" data-menu="view">视图<div class="menu-dropdown" id="menuView"><div class="menu-entry" data-action="togglePreview">👁 力场预览</div><div class="menu-entry" data-action="wire">📐 线框模式<span class="key">W</span></div><div class="menu-entry" data-action="reset">🔄 重置视角</div></div></div>
-<div class="menu-item" data-menu="tools">工具<div class="menu-dropdown" id="menuTools"><div class="menu-entry" data-action="toggleCollision">🛡 碰撞检测</div><div class="menu-entry" data-action="detectGaps">🔍 缺口检测</div></div></div>
+<div class="menu-item" data-menu="view">视图<div class="menu-dropdown" id="menuView"><div class="menu-entry" data-action="togglePreview">👁 力场预览</div><div class="menu-entry" data-action="toggleSimulate">🌊 模拟压力</div><div class="menu-entry" data-action="importField">📥 导入数据</div><div class="menu-sep"></div><div class="menu-entry" data-action="wire">📐 线框模式<span class="key">W</span></div><div class="menu-entry" data-action="reset">🔄 重置视角</div></div></div>
+<div class="menu-item" data-menu="tools">工具<div class="menu-dropdown" id="menuTools"><div class="menu-entry" data-action="toggleCollision">🛡 碰撞检测</div></div></div>
 <span style="color:#888;font-size:11px;margin-left:8px">3D拟物Layout编辑器</span></div>
 <div class="toolbar">
   <button id="tbPreview3D">力场预览</button>
-  <button id="tbPlace">放置模式</button><button id="tbWire">线框</button><button id="tbReset">重置视角</button><button id="tbEdit" class="active">编辑模式</button>
+  <button id="tbSimulate">模拟压力</button>
+  <button id="tbImportField">导入数据</button>
+  <button id="tbPlace">放置模式</button>
+  <button id="tbWire">线框</button>
+  <button id="tbReset">重置视角</button>
+  <button id="tbEdit" class="active">编辑模式</button>
 </div>
 <input type="file" id="stlFileInput" accept=".stl" style="display:none">
 <input type="file" id="jsonFileInput" accept=".json" style="display:none">
+<input type="file" id="fieldFileInput" accept=".json" style="display:none">
 <div class="top-metrics"><span>鼠标曲面: <b id="topMouse">—</b></span><span>相机距离/缩放: <b id="topZoom">—</b></span><span>单位: <b id="topUnit">1 mm/单位</b></span><span>默认半径: <b id="topCell">r=10mm</b></span></div>
 <div class="main">
   <div class="basket">
@@ -72,7 +76,6 @@ body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:#1e1e1e;colo
     <div class="landed-list" id="unlandedTags"></div>
   </div>
   <div class="viewport" id="viewport"><canvas id="canvas3D"></canvas><div class="vp-hint">左键旋转·滚轮缩放·中/右键平移·点击Cell选中·Ctrl+Click或放置模式单击添加·F聚焦·Del删除·Tab编辑预览</div>
-  <div class="gap-warn" id="gapWarn"><span id="gapMsg"></span><button id="gapLocate">定位</button><button id="gapDismiss">忽略</button></div>
   </div>
   <div class="props">
     <div class="group"><h3 style="color:#4ec9b0;font-size:12px;margin-bottom:6px">模型信息</h3>
@@ -91,12 +94,16 @@ body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:#1e1e1e;colo
       <div class="field"><label>Nz</label><input class="ro" value="—" readonly id="propNz"></div>
       <div class="field"><label>重心</label><input class="ro" value="—" readonly id="propCentroid"></div>
       <div class="field"><label>半径</label><input value="10" id="propRadius"><span class="unit">mm</span></div>
-      <div class="field"><label>标签</label><input value="" id="propLabel" placeholder="ADC/力值等"><span class="unit" style="font-size:10px">可输入任意文本</span></div>
+      <div class="field"><label>标签</label><input value="" id="propLabel" placeholder="备注/标识"><span class="unit" style="font-size:10px">备注文本</span></div>
+      <div class="field"><label>压力值</label><input value="" id="propPressure" placeholder="0.0"><span class="unit">数值</span></div>
       <div class="field"><label>面积</label><input class="ro" value="—" readonly id="propArea"><span class="unit">mm²</span></div>
       <div class="field"><label>旋转</label><input value="0.0" id="propRot"><span class="unit">°</span></div>
       <div class="field"><label>重叠</label><input class="ro" value="—" readonly id="propOv"></div>
-      <div class="field"><label></label><label style="color:#999;cursor:pointer;font-size:11px"><input type="checkbox" checked id="propCollision">碰撞检测</label></div>
-      <div class="field" id="heatRow" style="display:none"><label>力场半径</label><input type="range" min="20" max="200" step="10" value="60" id="fieldRadiusSlider" style="flex:1;height:16px"><span class="unit" id="fieldRadiusLabel">60mm</span></div></div>
+      <div class="field"><label></label><label style="color:#999;cursor:pointer;font-size:11px"><input type="checkbox" checked id="propCollision">碰撞检测</label></div></div>
+    <div class="group" id="fieldSettings" style="display:none"><h3 style="color:#4ec9b0;font-size:12px;margin-bottom:6px">力场设置</h3>
+      <div class="field"><label>模式</label><select id="fieldModeSelect" style="flex:1;background:#1e1e1e;border:1px solid #555;color:#ddd;padding:4px 8px;border-radius:3px;font-size:12px"><option value="manual">手动压力</option><option value="simulated">模拟压力</option><option value="real">导入数据</option></select></div>
+      <div class="field"><label>压力范围</label><input value="0" id="propPressureMin" style="width:60px;text-align:center"><span style="color:#888;margin:0 4px">~</span><input value="100" id="propPressureMax" style="width:60px;text-align:center"></div>
+      <div class="field"><label>力场半径</label><input type="range" min="20" max="200" step="10" value="60" id="fieldRadiusSlider" style="flex:1;height:16px"><span class="unit" id="fieldRadiusLabel">60mm</span></div></div>
   </div>
 </div>
 <div class="channel-table"><table><thead><tr><th>ID</th><th>落地</th><th>重叠</th><th>X</th><th>Y</th><th>Z</th><th>面积</th><th>半径</th></tr></thead><tbody id="channelBody"></tbody></table></div>
@@ -149,7 +156,7 @@ try{
   if(vp)vp.appendChild(errDiv);
   SC=null;CA=null;CT=null;RT=null;RY=null;CG=new T.Group();
 }
-let W=null,GM=[],gapSpheres=[];
+let W=null,GM=[];
 let SURF=null;
 
 function msg(m,t){const e=D('statusMsg');e.textContent=m;e.className='status-msg show';if(t==='w')e.classList.add('warn');if(t==='e')e.classList.add('error');clearTimeout(e._t);e._t=setTimeout(()=>e.classList.remove('show','warn','error'),t==='w'?4e3:2500)}
@@ -330,6 +337,7 @@ function placeCell(hit){
     }
   }
   C[id]={x:p.x,y:p.y,z:p.z,nx:n.x,ny:n.y,nz:n.z,r:radius,rot:0,label:'',pressure:0,id};
+  invalidateFieldCache();updateHeatmap._lastKey=null;
   CO();addOrUpdateCell(id);
   const g=G[id];if(g){const wp=localToWp(new T.Vector3(p.x,p.y,p.z));msg('Cell #'+id+' 已放置 世界坐标('+wp.x.toFixed(2)+','+wp.y.toFixed(2)+','+wp.z.toFixed(2)+')')}else{msg('Cell #'+id+' 创建失败','e')}
   refreshBasket();refreshTable();refreshProps()
@@ -351,6 +359,7 @@ function moveSelectedCell(hit){
     }
   }
   c.x=p.x;c.y=p.y;c.z=p.z;c.nx=n.x;c.ny=n.y;c.nz=n.z;
+  invalidateFieldCache();updateHeatmap._lastKey=null;
   CO();addOrUpdateCell(F);refreshBasket();refreshTable();refreshProps();msg('Cell #'+F+' 已移动');return true
 }
 
@@ -397,6 +406,7 @@ cv.addEventListener('mousemove',e=>{
       const viewDir=normalToLocal(new T.Vector3().subVectors(CA.position,h[0].point).normalize());
       if(n.dot(viewDir)<0)n.negate();
       c.x=p.x;c.y=p.y;c.z=p.z;c.nx=n.x;c.ny=n.y;c.nz=n.z;
+      invalidateFieldCache();updateHeatmap._lastKey=null;
       addOrUpdateCell(dragCellId);
     }
     return;
@@ -459,12 +469,13 @@ document.querySelectorAll('.menu-entry').forEach(entry=>{
     else if(action==='toggleEdit'){D('tbEdit').click()}
     else if(action==='undo'){if(typeof window.pyCommand!=='undefined')window.pyCommand('undo');else if(UNDO.length){REDO.push(JSON.stringify({MAX,radius,C,F,unitMM}));restoreState(UNDO.pop());_notify()}}
     else if(action==='redo'){if(typeof window.pyCommand!=='undefined')window.pyCommand('redo');else if(REDO.length){UNDO.push(JSON.stringify({MAX,radius,C,F,unitMM}));restoreState(REDO.pop());_notify()}}
-    else if(action==='deleteCell'){if(typeof window.pyCommand!=='undefined')window.pyCommand('deleteCell');else if(F>=0){snapShot();delete C[F];removeCellMesh(F);F=-1;CO();HL();refreshBasket();refreshTable();refreshProps()}}
+    else if(action==='deleteCell'){if(typeof window.pyCommand!=='undefined')window.pyCommand('deleteCell');else if(F>=0){snapShot();delete C[F];removeCellMesh(F);F=-1;invalidateFieldCache();updateHeatmap._lastKey=null;CO();HL();refreshBasket();refreshTable();refreshProps()}}
     else if(action==='togglePreview'){D('tbPreview3D').click()}
+    else if(action==='toggleSimulate'){D('tbSimulate').click()}
+    else if(action==='importField'){D('tbImportField').click()}
     else if(action==='wire'){D('tbWire').click()}
     else if(action==='reset'){D('tbReset').click()}
     else if(action==='toggleCollision'){collisionEnabled=!collisionEnabled;D('propCollision').checked=collisionEnabled;msg(collisionEnabled?'碰撞检测已开启':'碰撞检测已关闭')}
-    else if(action==='detectGaps'){detectGaps()}
   });
 });
 document.addEventListener('click',()=>closeAllMenus());
@@ -477,12 +488,22 @@ function closeAllMenus(){
 D('tbWire').onclick=()=>{if(!M||!RT)return;if(!W){W=new T.LineSegments(new T.WireframeGeometry(M.geometry),new T.LineBasicMaterial({color:0xdfe9ff,transparent:!0,opacity:.08}));RT.add(W)}W.visible=!W.visible;D('tbWire').classList.toggle('active',W.visible);msg(W.visible?'线框模式: ON — 显示模型三角网格骨架':'线框模式: OFF')};
 D('tbPreview3D').onclick=()=>togglePreview();
 
-// ══════════ Wendland 力场重建 (三模式) ══════════
-let PREVIEW=!1,HEAT_INTERVAL=null;
-let FIELD_MODE='manual',FIELD_R=60,_importedField={},_hotspots=[],_origMaterial=null,_recompute=!0;
+// ══════════ Wendland 力场重建 (三模式 + 性能缓存) ══════════
+let PREVIEW=!1,HEAT_INTERVAL=null,SIM_INTERVAL=null;
+let FIELD_MODE='manual',FIELD_R=60,_importedField={},_origMaterial=null;
 let SIMULATE_ON=!1;
+let pressureMin=0,pressureMax=100;
 const MODEL_GREY=new T.Color(0x7f8998);
-const PRESSURE_MIN=0,PRESSURE_MAX=1;
+
+// ── 性能缓存 ──
+let _vpos=null,_ioff=null,_icell=null,_iwgt=null,_cv=null,_cacheOk=!1,_cacheFR=0;
+function invalidateFieldCache(){
+  if(_cacheOk&&M&&M.geometry&&M.geometry.attributes.color){
+    const col=M.geometry.attributes.color,n=col.count;
+    for(let i=0;i<n;i++)col.setXYZ(i,MODEL_GREY.r,MODEL_GREY.g,MODEL_GREY.b);
+    col.needsUpdate=!0;
+  }
+  _cacheOk=!1;}
 
 function wendlandPhi(r){return r>=1?0:Math.pow(1-r,4)*(4*r+1)}
 function jetColor(t){t=Math.max(0,Math.min(1,t));let r,g,b;if(t<.125){const s=t/.125;r=0;g=0;b=128+127*s}
@@ -492,13 +513,15 @@ else if(t<.875){const s=(t-.625)/.25;r=255;g=255*(1-s);b=0}
 else{const s=(t-.875)/.125;r=255*(1-s*.5);g=0;b=0}
 return new T.Color(r/255,g/255,b/255)}
 
-// ── 数据源: manual / simulated / real ──
+function readPressureRange(){
+  pressureMin=parseFloat(D('propPressureMin').value);pressureMax=parseFloat(D('propPressureMax').value);
+  if(!Number.isFinite(pressureMin))pressureMin=0;if(!Number.isFinite(pressureMax)||pressureMax<=pressureMin)pressureMax=pressureMin+100;
+  D('propPressureMin').value=pressureMin;D('propPressureMax').value=pressureMax;
+}
+
 function getCellPressures(cells){
-  if(FIELD_MODE==='manual'){const p={};cells.forEach(c=>{
-    const v=parseFloat(c.pressure??c.label);p[c.id]=Number.isFinite(v)?v:0});return p}
-  if(FIELD_MODE==='simulated')return computeSimPressure(cells);
   if(FIELD_MODE==='real')return _importedField;
-  return{};
+  const p={};cells.forEach(c=>{const v=parseFloat(c.pressure);p[c.id]=Number.isFinite(v)?v:0});return p;
 }
 
 // ── 空间分桶 ──
@@ -522,91 +545,135 @@ function queryBucketCells(lx,ly,lz){
   return r;
 }
 
-// ── 模拟压力(仅生成cellPresure，不染Mesh) ──
-function initHotspots(){
-  const arr=Object.values(C);if(!arr.length)return;_hotspots=[];
-  for(let i=0;i<3&&i<arr.length;i++){let best=null,bestD=-1;
-    for(let t=0;t<30;t++){const c=arr[Math.floor(Math.random()*arr.length)];let md=Infinity;
-      _hotspots.forEach(h=>{const dx=c.x-h.x,dy=c.y-h.y,dz=c.z-h.z;md=Math.min(md,dx*dx+dy*dy+dz*dz)});
-      if(md>bestD){bestD=md;best=c}}
-    _hotspots.push({x:best.x,y:best.y,z:best.z,vx:(Math.random()-.5)*4,vy:(Math.random()-.5)*4,vz:(Math.random()-.5)*4})}
-  updateHotspots(0);
-}
-function updateHotspots(dt){
-  if(!_hotspots.length)return;const arr=Object.values(C);if(!arr.length)return;
-  let minX=Infinity,minY=Infinity,minZ=Infinity,maxX=-Infinity,maxY=-Infinity,maxZ=-Infinity;
-  arr.forEach(c=>{minX=Math.min(minX,c.x);minY=Math.min(minY,c.y);minZ=Math.min(minZ,c.z);maxX=Math.max(maxX,c.x);maxY=Math.max(maxY,c.y);maxZ=Math.max(maxZ,c.z)});
-  const m=(maxX-minX)*.05;minX-=m;minY-=m;minZ-=m;maxX+=m;maxY+=m;maxZ+=m;
-  _hotspots.forEach(h=>{h.x+=h.vx*dt;h.y+=h.vy*dt;h.z+=h.vz*dt;
-    if(h.x<minX){h.x=minX;h.vx*=-1}else if(h.x>maxX){h.x=maxX;h.vx*=-1}
-    if(h.y<minY){h.y=minY;h.vy*=-1}else if(h.y>maxY){h.y=maxY;h.vy*=-1}
-    if(h.z<minZ){h.z=minZ;h.vz*=-1}else if(h.z>maxZ){h.z=maxZ;h.vz*=-1}})
-}
-function computeSimPressure(cells){
-  if(!_hotspots.length)initHotspots();updateHotspots(0.2);
-  const hotR=mm2u(FIELD_R*2.5),p={};
-  cells.forEach(c=>{let v=0;_hotspots.forEach(h=>{const dx=c.x-h.x,dy=c.y-h.y,dz=c.z-h.z,d=Math.sqrt(dx*dx+dy*dy+dz*dz);if(d<hotR)v+=Math.exp(-d*d/(2*(hotR*.35)*(hotR*.35)))});p[c.id]=Math.min(1,v)});
-  return p;
+// ── 模拟压力 ──
+function updateSimPressures(){
+  const cells=Object.values(C);if(!cells.length)return;
+  const now=Date.now()/1000;
+  cells.forEach(c=>{const phase=(c.id+1)*0.73,freq=0.25+(c.id%7)*0.12,base=pressureMin+(pressureMax-pressureMin)*0.2,amp=(pressureMax-pressureMin)*0.35;c.pressure=base+amp*(0.5+0.5*Math.sin(now*freq+phase))});
 }
 
-// ── Wendland 重建 Mesh 表面 ──
+// ── 重建影响关系缓存 (Cell位置/半径变化时调用) ──
+function rebuildFieldCache(cells,fieldRadiusU){
+  const t0=performance.now();const geo=M.geometry,pos=geo.attributes.position,n=pos.count;
+  // Step1: 缓存所有顶点在cell空间的位置 (仅首次或模型变更)
+  if(!_vpos||_vpos.length!==n*3){
+    const tt=performance.now();_vpos=new Float32Array(n*3);
+    const w=new T.Vector3(),l=new T.Vector3();
+    for(let i=0;i<n;i++){w.set(pos.getX(i),pos.getY(i),pos.getZ(i)).applyMatrix4(M.matrixWorld);l.copy(wpToLocal(w));_vpos[i*3]=l.x;_vpos[i*3+1]=l.y;_vpos[i*3+2]=l.z}
+    console.log('[perf] vertex-local-pos cached',(performance.now()-tt).toFixed(0)+'ms',n+' verts');
+  }
+  // Step1.5: 确保color buffer存在并全量清灰 (仅此次，后续帧只更新覆盖顶点)
+  if(!geo.attributes.color)geo.setAttribute('color',new T.BufferAttribute(new Float32Array(n*3),3));
+  const col=geo.attributes.color;
+  for(let i=0;i<n;i++)col.setXYZ(i,MODEL_GREY.r,MODEL_GREY.g,MODEL_GREY.b);
+  // Step2: 构建空间分桶
+  buildSpatialBuckets(cells,fieldRadiusU);
+  // Step3: 两遍扫描CSR + 收集覆盖顶点
+  const tt=performance.now(),cellP=new T.Vector3();
+  if(!_ioff||_ioff.length!==n+1){_ioff=new Uint32Array(n+1)}
+  const coveredTemp=[];
+  let total=0;
+  for(let i=0;i<n;i++){const lx=_vpos[i*3],ly=_vpos[i*3+1],lz=_vpos[i*3+2],nb=queryBucketCells(lx,ly,lz);let cnt=0;for(const c of nb){cellP.set(c.x,c.y,c.z);const dx=lx-c.x,dy=ly-c.y,dz=lz-c.z,d=Math.sqrt(dx*dx+dy*dy+dz*dz);if(d>fieldRadiusU)continue;const r=d/fieldRadiusU;if(wendlandPhi(r)>1e-8)cnt++}_ioff[i]=cnt;total+=cnt;if(cnt>0)coveredTemp.push(i)}
+  _ioff[n]=total;
+  if(!_icell||_icell.length<total){_icell=new Uint32Array(Math.max(total,1));_iwgt=new Float32Array(Math.max(total,1))}
+  _cv=coveredTemp.length?new Uint32Array(coveredTemp):new Uint32Array(0);
+  let off=0;
+  for(let i=0;i<n;i++){const cnt=_ioff[i];_ioff[i]=off;const lx=_vpos[i*3],ly=_vpos[i*3+1],lz=_vpos[i*3+2],nb=queryBucketCells(lx,ly,lz);for(const c of nb){cellP.set(c.x,c.y,c.z);const dx=lx-c.x,dy=ly-c.y,dz=lz-c.z,d=Math.sqrt(dx*dx+dy*dy+dz*dz);if(d>fieldRadiusU)continue;const r=d/fieldRadiusU,w=wendlandPhi(r);if(w>1e-8){_icell[off]=c.id;_iwgt[off]=w;off++}}}
+  _cacheOk=!0;_cacheFR=FIELD_R;col.needsUpdate=!0;
+  console.log('[perf] cache built',(performance.now()-tt).toFixed(0)+'ms',n+' verts',total+' edges',_cv.length+' covered');
+  console.log('[perf] cache total',(performance.now()-t0).toFixed(0)+'ms');
+}
+
+// ── 快速着色 (只遍历覆盖顶点，不清除未覆盖区域) ──
+function applyFieldColors(cellPressures){
+  const t0=performance.now(),geo=M.geometry,col=geo.attributes.color,range=pressureMax-pressureMin||1,th=0.01;let cov=0;
+  const ncv=_cv.length;
+  for(let k=0;k<ncv;k++){const i=_cv[k],s=_ioff[i],e=_ioff[i+1];let num=0,den=0;
+    for(let j=s;j<e;j++){const p=cellPressures[_icell[j]]||0,w=_iwgt[j];num+=p*w;den+=w}
+    if(den<=1e-6)continue;
+    const pr=num/den,cf=Math.min(1,den);if(cf<=th)continue;
+    cov++;const t=Math.max(0,Math.min(1,(pr-pressureMin)/range)),jc=jetColor(t),fc=MODEL_GREY.clone().lerp(jc,cf);col.setXYZ(i,fc.r,fc.g,fc.b)}
+  col.needsUpdate=!0;M.material.vertexColors=!0;
+  return performance.now()-t0;
+}
+
+// ── 主入口 ──
 function updateHeatmap(){
   if(!PREVIEW||!M)return;
   const cells=Object.values(C);if(!cells.length)return;
-  if(SIMULATE_ON&&FIELD_MODE==='simulated')computeSimPressure(cells);
+  readPressureRange();
   const cellPressures=getCellPressures(cells);
-  // 只在压力值变化时重算顶点颜色
+  const activeCells=cells.filter(c=>cellPressures[c.id]!==undefined);
+  if(!activeCells.length){msg('请在Cell属性面板中输入压力数值','w');return}
+  const fieldRadiusU=mm2u(FIELD_R);
+  // 缓存失效时重建
+  if(!_cacheOk||_cacheFR!==FIELD_R){rebuildFieldCache(activeCells,fieldRadiusU);updateHeatmap._lastKey=null}
+  // 压力未变则跳过 (手动模式核心优化)
   const pkey=JSON.stringify(cellPressures);
   if(pkey===updateHeatmap._lastKey)return;
   updateHeatmap._lastKey=pkey;
-  const activeCells=cells.filter(c=>cellPressures[c.id]!==undefined);
-  if(!activeCells.length){if(FIELD_MODE==='manual')msg('请在Cell标签中输入压力数值','w');return}
-  const fieldRadiusU=mm2u(FIELD_R);
-  buildSpatialBuckets(activeCells,fieldRadiusU);
-  const geo=M.geometry;if(!geo||!geo.attributes.position)return;
-  const pos=geo.attributes.position;
-  if(!geo.attributes.color)geo.setAttribute('color',new T.BufferAttribute(new Float32Array(pos.count*3),3));
-  const colArr=geo.attributes.color,tmpW=new T.Vector3(),tmpL=new T.Vector3(),cellP=new T.Vector3();
-  // 先初始化所有顶点为模型灰色
-  for(let i=0;i<pos.count;i++)colArr.setXYZ(i,MODEL_GREY.r,MODEL_GREY.g,MODEL_GREY.b);
-  const coverageTh=0.01;let covered=0;
-  for(let i=0;i<pos.count;i++){
-    tmpW.set(pos.getX(i),pos.getY(i),pos.getZ(i)).applyMatrix4(M.matrixWorld);
-    tmpL.copy(wpToLocal(tmpW));
-    const nearby=queryBucketCells(tmpL.x,tmpL.y,tmpL.z);let num=0,den=0;
-    for(const cell of nearby){cellP.set(cell.x,cell.y,cell.z);const d=tmpL.distanceTo(cellP);if(d>fieldRadiusU)continue;const r=d/fieldRadiusU,w=wendlandPhi(r);num+=(cellPressures[cell.id]||0)*w;den+=w}
-    if(den<=1e-6){colArr.setXYZ(i,MODEL_GREY.r,MODEL_GREY.g,MODEL_GREY.b);continue}
-    const pressure=num/den,confidence=Math.min(1,den);
-    if(confidence<=coverageTh){colArr.setXYZ(i,MODEL_GREY.r,MODEL_GREY.g,MODEL_GREY.b);continue}
-    covered++;
-    const t=Math.max(0,Math.min(1,(pressure-PRESSURE_MIN)/(PRESSURE_MAX-PRESSURE_MIN)));
-    const jc=jetColor(t);
-    const fc=MODEL_GREY.clone().lerp(jc,confidence);
-    colArr.setXYZ(i,fc.r,fc.g,fc.b);
-  }
-  colArr.needsUpdate=!0;M.material.vertexColors=!0;
-  console.log('[field-debug]',{FIELD_R_MM:FIELD_R,fieldRadiusU,bucketSizeU:_bucketSizeU,covered,total:pos.count,ratio:(covered/pos.count*100).toFixed(1)+'%'});
+  const ms=applyFieldColors(cellPressures);
+  console.log('[perf] colors applied',ms.toFixed(0)+'ms','covered',Object.values(cellPressures).filter(v=>v!==0).length+'/'+activeCells.length+' cells');
 }
 
 // ── 模式切换 ──
-function setFieldMode(mode){FIELD_MODE=mode;_hotspots=[];SIMULATE_ON=(mode==='simulated');msg('M:'+mode)}
-function importFieldJSON(jsonStr){try{const d=JSON.parse(jsonStr);_importedField=d.cells||d;setFieldMode('real')}catch(e){msg('JSON错误:'+e.message,'e')}}
+function setFieldMode(mode){
+  FIELD_MODE=mode;D('fieldModeSelect').value=mode;
+  if(mode==='simulated'){msg('模拟压力模式：Cell压力将自动动态变化')}
+  else if(mode==='real'){msg('导入数据模式：使用外部导入的压力数据')}
+  else{msg('手动压力模式：使用Cell属性面板中的压力值')}
+}
+function importFieldJSON(jsonStr){
+  try{const d=JSON.parse(jsonStr);_importedField=d.cells||d;
+    if(d.range&&d.range.length===2){pressureMin=+d.range[0];pressureMax=+d.range[1];D('propPressureMin').value=pressureMin;D('propPressureMax').value=pressureMax}
+    setFieldMode('real');updateHeatmap._lastKey=null;if(PREVIEW)updateHeatmap();
+    msg('已导入 '+Object.keys(_importedField).length+' 个压力值')}
+  catch(e){msg('JSON解析错误:'+e.message,'e')}
+}
 
 // ── 力场预览开关 ──
 function togglePreview(){
-  PREVIEW=!PREVIEW;const hr=D('heatRow');
-  if(PREVIEW){E=!1;P=!1;D('tbEdit').textContent='力场预览';D('tbEdit').classList.remove('active');D('tbPlace').classList.remove('active');
-    hr.style.display='flex';if(M&&M.material){_origMaterial={color:M.material.color.getHex(),opacity:M.material.opacity};M.material.color.set(0xffffff);M.material.opacity=0.95}
-    HEAT_INTERVAL=setInterval(updateHeatmap,500);updateHeatmap._lastKey=null;
+  PREVIEW=!PREVIEW;const fs=D('fieldSettings');
+  if(PREVIEW){
+    fs.style.display='block';D('tbPreview3D').classList.add('active');
+    if(M&&M.material){_origMaterial={color:M.material.color.getHex(),opacity:M.material.opacity};M.material.color.set(0xffffff);M.material.opacity=0.95}
+    updateHeatmap._lastKey=null;updateHeatmap();
     O.forEach(g=>g.children.forEach(ch=>{if(ch.userData&&ch.userData.isLabel)ch.visible=!0}));
-    msg('力场 R='+FIELD_R+'mm mode='+FIELD_MODE)}
-  else{clearInterval(HEAT_INTERVAL);HEAT_INTERVAL=null;E=!0;hr.style.display='none';
+    readPressureRange();
+    // 仅模拟模式需要定时器; 手动/real模式压力和缓存不变时零开销
+    if(FIELD_MODE==='simulated'&&SIMULATE_ON){HEAT_INTERVAL=setInterval(updateHeatmap,500)}
+    msg('力场预览 ON | R='+FIELD_R+'mm | range=['+pressureMin+','+pressureMax+'] | mode='+FIELD_MODE)}
+  else{
+    fs.style.display='none';D('tbPreview3D').classList.remove('active');
+    clearInterval(HEAT_INTERVAL);HEAT_INTERVAL=null;
     O.forEach(g=>g.children.forEach(ch=>{if(ch.userData&&ch.userData.isLabel){ch.visible=!1}}));
     if(M&&M.material){M.material.vertexColors=!1;M.material.emissive=new T.Color(0);M.material.emissiveIntensity=0;
       if(_origMaterial){M.material.color.set(_origMaterial.color);M.material.opacity=_origMaterial.opacity;_origMaterial=null}}
-    D('tbEdit').textContent='编辑模式';D('tbEdit').classList.add('active');HL();msg('退出力场')}
+    msg('退出力场预览')}
 }
-D('fieldRadiusSlider').oninput=()=>{FIELD_R=parseInt(D('fieldRadiusSlider').value)||60;D('fieldRadiusLabel').textContent=FIELD_R+'mm'};
+
+// ── 模拟压力开关 ──
+function toggleSimulate(){
+  if(SIMULATE_ON){SIMULATE_ON=!1;clearInterval(SIM_INTERVAL);SIM_INTERVAL=null;clearInterval(HEAT_INTERVAL);HEAT_INTERVAL=null;
+    D('tbSimulate').classList.remove('active');msg('模拟压力已关闭 — pressure停止变化')}
+  else{SIMULATE_ON=!0;D('tbSimulate').classList.add('active');setFieldMode('simulated');
+    if(PREVIEW){SIM_INTERVAL=setInterval(()=>{updateSimPressures();updateHeatmap._lastKey=null},300);
+      HEAT_INTERVAL=setInterval(updateHeatmap,500)}
+    msg('模拟压力已开启 — Cell压力自动动态变化')}
+}
+D('tbSimulate').onclick=()=>toggleSimulate();
+
+D('tbImportField').onclick=()=>{D('fieldFileInput').click()};
+D('fieldFileInput').onchange=function(){if(!this.files.length)return;const r=new FileReader();r.onload=ev=>{importFieldJSON(ev.target.result)};r.readAsText(this.files[0]);this.value=''};
+
+D('fieldModeSelect').onchange=()=>{const mode=D('fieldModeSelect').value;
+  if(mode==='simulated'){toggleSimulate()}
+  else{SIMULATE_ON=!1;clearInterval(SIM_INTERVAL);SIM_INTERVAL=null;clearInterval(HEAT_INTERVAL);HEAT_INTERVAL=null;D('tbSimulate').classList.remove('active');setFieldMode(mode)}
+  updateHeatmap._lastKey=null;if(PREVIEW)updateHeatmap()};
+
+D('fieldRadiusSlider').oninput=()=>{FIELD_R=parseInt(D('fieldRadiusSlider').value)||60;D('fieldRadiusLabel').textContent=FIELD_R+'mm';invalidateFieldCache();updateHeatmap._lastKey=null};
+D('propPressureMin').onchange=()=>{readPressureRange();updateHeatmap._lastKey=null;if(PREVIEW&&FIELD_MODE!=='simulated')updateHeatmap()};
+D('propPressureMax').onchange=()=>{readPressureRange();updateHeatmap._lastKey=null;if(PREVIEW&&FIELD_MODE!=='simulated')updateHeatmap()};
 // ══════════════ END Wendland 力场重建 ══════════════
 // ══════════════ END Wendland 力场重建 ══════════════
 D('tbReset').onclick=()=>{if(!RT||!CT||!CA)return;const b=new T.Box3().setFromObject(RT),sz=b.getSize(new T.Vector3()),md=Math.max(sz.x,sz.y,sz.z);CT.target.set(0,0,0);CA.position.set(md*.55,-md*0.8,md*.55);CA.lookAt(0,0,0);CT.update()};
@@ -615,28 +682,10 @@ D('tbPlace').onclick=()=>{P=!P;D('tbPlace').classList.toggle('active',P);if(P&&!
 D('basketDrag').onclick=()=>{const id=getFreeId();if(id<0){msg('篮子已满','w');return}msg('Cell #'+id+' 已创建，Ctrl+Click放到曲面')};
 D('propUnit').onchange=()=>{const v=parseFloat(D('propUnit').value);if(v>0){unitMM=v;D('topUnit').textContent=unitMM+' mm/单位';updateBoxInfo();if(Object.keys(C).length===0)setDefaultsFromModel();CO();RB();refreshProps();refreshTable();msg('单位比例已更新：1模型单位='+unitMM+'mm')}else{D('propUnit').value=unitMM}};
 D('propRadius').onchange=()=>{const v=parseFloat(D('propRadius').value);if(v>0){const sl=setRadius(v);if(F>=0&&C[F]){C[F].r=sl;CO();addOrUpdateCell(F);refreshProps();refreshTable()}}else{D('propRadius').value=radius.toFixed(1);msg('半径必须大于0','w')}};
-D('propLabel').onchange=()=>{if(F>=0&&C[F]){C[F].label=D('propLabel').value.trim();C[F].pressure=parseFloat(C[F].label)||0;addOrUpdateCell(F);refreshProps()}};
+D('propLabel').onchange=()=>{if(F>=0&&C[F]){C[F].label=D('propLabel').value.trim();addOrUpdateCell(F);refreshProps()}};
+D('propPressure').onchange=()=>{if(F>=0&&C[F]){C[F].pressure=parseFloat(D('propPressure').value)||0;updateHeatmap._lastKey=null;addOrUpdateCell(F);refreshProps();if(PREVIEW&&FIELD_MODE!=='simulated')updateHeatmap()}};
 D('propRot').onchange=()=>{if(F>=0&&C[F]){C[F].rot=parseFloat(D('propRot').value)||0;addOrUpdateCell(F);refreshProps()}};
 D('propCollision').onchange=()=>{collisionEnabled = D('propCollision').checked; msg(collisionEnabled?'碰撞检测已开启':'碰撞检测已关闭 — Cell可重叠放置')};
-
-// GAP
-function detectGaps(){
-  clearGaps();const gaps=[];
-  if(!M||!RT){msg('模型未加载');return}
-  const cells=Object.values(C);if(!cells.length){msg('无Cell，无法检测缺口','w');return}
-  const box=new T.Box3().setFromObject(RT),minX=box.min.x,maxX=box.max.x,minY=box.min.y,maxY=box.max.y,step=Math.max(mm2u(5),S*.03),radius=mm2u(30);
-  for(let y=minY;y<=maxY;y+=step)for(let x=minX;x<=maxX;x+=step){
-    RY.set(new T.Vector3(x,y,1e4),new T.Vector3(0,0,-1));const h=RY.intersectObject(M,!1);if(!h.length)continue;
-    const p=wpToLocal(h[0].point);let cov=!1;
-    for(const c of cells){const dx=p.x-c.x,dy=p.y-c.y,dz=p.z-c.z;if(Math.sqrt(dx*dx+dy*dy+dz*dz)<radius){cov=!0;break}}
-    if(!cov){gaps.push(p.clone());const s=new T.Mesh(new T.SphereGeometry(S*.01,8,8),new T.MeshBasicMaterial({color:0xf85149,transparent:!0,opacity:.85}));s.position.copy(p);RT.add(s);gapSpheres.push(s)}
-  }
-  if(gaps.length){D('gapWarn').style.display='block';D('gapMsg').textContent='检测到'+gaps.length+'处缺口(r='+u2mm(radius).toFixed(0)+'mm)';msg('保存警告:曲面存在'+gaps.length+'处缺口','w')}
-  else{D('gapWarn').style.display='none';msg('保存成功—覆盖检测通过')}
-}
-function clearGaps(){if(!RT)return;gapSpheres.forEach(s=>RT.remove(s));gapSpheres=[];D('gapWarn').style.display='none'}
-if(D('gapDismiss'))D('gapDismiss').onclick=clearGaps;
-if(D('gapLocate'))D('gapLocate').onclick=()=>{if(gapSpheres.length){const g=gapSpheres[0];CT.target.copy(g.position);CA.position.copy(g.position.clone().add(new T.Vector3(0,-S*.5,S*.3)));CT.update()}};
 
 // UI
 function refreshBasket(){
@@ -650,8 +699,8 @@ function refreshBasket(){
 function applyTotalChannels(){const v=Math.round(parseFloat(D('bsTotal').value));if(!v||v<1){D('bsTotal').value=MAX||'';msg('请导入3D模型后自动计算通道数，或手动输入1~200','w');return}const maxId=Math.max(-1,...Object.keys(C).map(Number));if(v>=1&&v<=200&&v>=maxId+1){MAX=v;updateTotals();refreshBasket();refreshTable();msg('总通道数已更新为 '+MAX)}else{D('bsTotal').value=MAX;msg('通道数需为 '+(maxId+1)+'~200','w')}}
 function refreshProps(){
   const c=C[F];D('selLabel').textContent=F>=0?'(#'+F+')':'(无)';D('propId').value=F>=0?'#'+F:'—';
-  if(c){D('propX').value=u2mm(c.x).toFixed(1);D('propY').value=u2mm(c.y).toFixed(1);D('propZ').value=u2mm(c.z).toFixed(1);D('propNx').value=c.nx.toFixed(3);D('propNy').value=c.ny.toFixed(3);D('propNz').value=c.nz.toFixed(3);D('propCentroid').value='('+u2mm(c.x).toFixed(1)+','+u2mm(c.y).toFixed(1)+','+u2mm(c.z).toFixed(1)+')';D('propRadius').value=c.r.toFixed(1);D('propArea').value=cellSurfaceArea(c).toFixed(1);D('propRot').value=(c.rot||0).toFixed(1);D('propOv').value=(V[F]||1)+'层';D('propLabel').value=c.label||''}
-  else{['propX','propY','propZ','propNx','propNy','propNz','propCentroid','propArea','propOv'].forEach(id=>D(id).value='—');D('propRadius').value=radius.toFixed(1);D('propRot').value='0.0';D('propLabel').value=''}
+  if(c){D('propX').value=u2mm(c.x).toFixed(1);D('propY').value=u2mm(c.y).toFixed(1);D('propZ').value=u2mm(c.z).toFixed(1);D('propNx').value=c.nx.toFixed(3);D('propNy').value=c.ny.toFixed(3);D('propNz').value=c.nz.toFixed(3);D('propCentroid').value='('+u2mm(c.x).toFixed(1)+','+u2mm(c.y).toFixed(1)+','+u2mm(c.z).toFixed(1)+')';D('propRadius').value=c.r.toFixed(1);D('propArea').value=cellSurfaceArea(c).toFixed(1);D('propRot').value=(c.rot||0).toFixed(1);D('propOv').value=(V[F]||1)+'层';D('propLabel').value=c.label||'';D('propPressure').value=(c.pressure!=null?c.pressure:0)}
+  else{['propX','propY','propZ','propNx','propNy','propNz','propCentroid','propArea','propOv'].forEach(id=>D(id).value='—');D('propRadius').value=radius.toFixed(1);D('propRot').value='0.0';D('propLabel').value='';D('propPressure').value='0'}
 }
 function refreshTable(){
   if(MAX<=0){D('channelBody').innerHTML='<tr><td colspan="8" style="color:#666;text-align:center;padding:20px">请先导入3D模型</td></tr>';return}
@@ -699,11 +748,11 @@ window.pyCommand=function(cmd,data){
     else if(cmd==='setRot'&&F>=0&&C[F]){C[F].rot=parseFloat(data.rot)||0;addOrUpdateCell(F);_notify()}
     else if(cmd==='setTotal'&&data.n>=1&&data.n<=200){const oldM=MAX;MAX=data.n;refreshBasket();refreshTable();refreshProps();_notify();msg('通道数已更新: '+oldM+' -> '+MAX)}
     else if(cmd==='setUnit'&&data.unit>0){unitMM=data.unit;D('propUnit').value=unitMM;D('topUnit').textContent=unitMM+' mm/单位';updateBoxInfo();if(Object.keys(C).length>0){CO();RB();refreshProps();refreshTable()}_notify();msg('单位比例已更新: 1模型单位='+unitMM+'mm')}
-    else if(cmd==='deleteCell'&&F>=0){snapShot();delete C[F];removeCellMesh(F);F=-1;CO();HL();refreshBasket();refreshTable();refreshProps();_notify()}
+    else if(cmd==='deleteCell'&&F>=0){snapShot();delete C[F];removeCellMesh(F);F=-1;invalidateFieldCache();updateHeatmap._lastKey=null;CO();HL();refreshBasket();refreshTable();refreshProps();_notify()}
     else if(cmd==='focusCell'&&data.id>=0&&C[data.id]){F=data.id;const c=C[F];if(!CT||!CA)return;const p=localToWp(new T.Vector3(c.x,c.y,c.z));CT.target.copy(p);CA.position.set(p.x,p.y-80,p.z+50);HL();_notify()}
     else if(cmd==='getAllCells'){const all=[];for(let i=0;i<MAX;i++){const c=C[i];all.push(c?{id:i,x:u2mm(c.x).toFixed(1),y:u2mm(c.y).toFixed(1),z:u2mm(c.z).toFixed(1),radius:c.r.toFixed(1),area:cellSurfaceArea(c).toFixed(1),overlap:V[i]||0}:null)}sendBridge('allCells',all)}
     else if(cmd==='exportCells'){const cells=[];for(const c of Object.values(C))cells.push({id:c.id,center_3d:{x:+u2mm(c.x).toFixed(4),y:+u2mm(c.y).toFixed(4),z:+u2mm(c.z).toFixed(4)},normal:{x:+c.nx.toFixed(4),y:+c.ny.toFixed(4),z:+c.nz.toFixed(4)},radius_mm:c.r,width_mm:c.r*2,height_mm:c.r*2,rotation_deg:c.rot||0,label:c.label||'',pressure:c.pressure||0});sendBridge('exportCells',{cells:cells,total_points:MAX})}
-    else if(cmd==='importCells'&&Array.isArray(data)){snapShot();C={};data.forEach(c=>{if(c.id>=0&&c.id<MAX)C[c.id]={x:mm2u(c.x||c.center_3d?.x||0),y:mm2u(c.y||c.center_3d?.y||0),z:mm2u(c.z||c.center_3d?.z||0),nx:c.nx||c.normal?.x||0,ny:c.ny||c.normal?.y||0,nz:c.nz||c.normal?.z||1,r:c.radius_mm||c.radius||(c.width_mm||c.side||radius)/2,rot:c.rot||c.rotation_deg||0,id:c.id,label:c.label||'',pressure:c.pressure||0,pressure:parseFloat(c.pressure??c.label)||0}});F=-1;CO();RB();refreshBasket();refreshTable();refreshProps();_notify()}
+    else if(cmd==='importCells'&&Array.isArray(data)){snapShot();C={};data.forEach(c=>{if(c.id>=0&&c.id<MAX)C[c.id]={x:mm2u(c.x||c.center_3d?.x||0),y:mm2u(c.y||c.center_3d?.y||0),z:mm2u(c.z||c.center_3d?.z||0),nx:c.nx||c.normal?.x||0,ny:c.ny||c.normal?.y||0,nz:c.nz||c.normal?.z||1,r:c.radius_mm||c.radius||(c.width_mm||c.side||radius)/2,rot:c.rot||c.rotation_deg||0,id:c.id,label:c.label||'',pressure:parseFloat(c.pressure)||0}});F=-1;invalidateFieldCache();updateHeatmap._lastKey=null;CO();RB();refreshBasket();refreshTable();refreshProps();_notify()}
     else if(cmd==='loadStl'&&(data.url||data.b64)){
       if(!RT){msg('WebGL不可用，无法加载模型','e');return}
       const fmt=(data.format||'stl').toLowerCase();
@@ -716,7 +765,7 @@ window.pyCommand=function(cmd,data){
         const mt=new T.MeshPhongMaterial({color:0x7f8998,specular:0x333,shininess:45,side:T.DoubleSide,transparent:!0,opacity:.92});
         if(M){RT.remove(M);M.geometry.dispose()}
         M=new T.Mesh(geo,mt);M.raycast=acceleratedRaycast;RT.add(M);
-        C={};F=-1;clearGaps();
+        C={};F=-1;_vpos=null;invalidateFieldCache();
         O.forEach(g=>CG.remove(g));O=[];G={};A={};
         const b=new T.Box3().setFromObject(M),sz=b.getSize(new T.Vector3()),ctr=b.getCenter(new T.Vector3());
         RT.position.set(-ctr.x,-ctr.y,-ctr.z);M.updateMatrixWorld();S=Math.max(sz.x,sz.y,sz.z);
@@ -734,7 +783,7 @@ window.pyCommand=function(cmd,data){
               x:mm2u(c.center_3d?.x||c.x||0), y:mm2u(c.center_3d?.y||c.y||0), z:mm2u(c.center_3d?.z||c.z||0),
               nx:c.normal?.x||c.nx||0, ny:c.normal?.y||c.ny||0, nz:c.normal?.z||c.nz||1,
               r:c.radius_mm||c.radius||(c.width_mm||c.side||radius)/2,
-              rot:c.rotation_deg||c.rot||0, id:c.id, label:c.label||'',pressure:c.pressure||0,pressure:parseFloat(c.pressure??c.label)||0
+              rot:c.rotation_deg||c.rot||0, id:c.id, label:c.label||'',pressure:parseFloat(c.pressure)||0
             };
           });
           CO();RB();
@@ -743,7 +792,7 @@ window.pyCommand=function(cmd,data){
         if(CT&&CA){
         const md=S;CA.position.set(md*.55,-md*0.8,md*.55);CT.target.set(0,0,0);CT.update();
         }
-        SL('完成');_notify();sendBridge('modelLoaded',{faces:n,size:[u2mm(sz.x).toFixed(1),u2mm(sz.y).toFixed(1),u2mm(sz.z).toFixed(1)],unit:unitMM,surfaceArea:surfaceAreaMM2.toFixed(0),recommendedChannels:MAX})
+        SL('完成');_notify();_needsRender=!0;sendBridge('modelLoaded',{faces:n,size:[u2mm(sz.x).toFixed(1),u2mm(sz.y).toFixed(1),u2mm(sz.z).toFixed(1)],unit:unitMM,surfaceArea:surfaceAreaMM2.toFixed(0),recommendedChannels:MAX})
       };
       const parseModel=(buf,name)=>{
         try{
@@ -790,10 +839,12 @@ window.pyCommand=function(cmd,data){
           rot:c.rotation_deg||c.rot||0, id:id, label:c.label||'',pressure:c.pressure||0
         };
       });
+      invalidateFieldCache();updateHeatmap._lastKey=null;
       CO();RB();refreshBasket();refreshTable();refreshProps();_notify();
       msg('已加载 '+Object.keys(C).length+' 个Cell');
     }
     else if(cmd==='togglePreview'){togglePreview()}
+    else if(cmd==='toggleSimulate'){toggleSimulate()}
     else if(cmd==='screenshot'){R.render(SC,CA);setTimeout(()=>{const dataURL=R.domElement.toDataURL('image/png');const b64=dataURL.split(',')[1];sendBridge('screenshotData',{data:b64,path:data.path||''})},100)}
     else if(cmd==='importField'&&data.json){importFieldJSON(data.json)}
     else if(cmd==='setFieldMode'&&data.mode){setFieldMode(data.mode)}
@@ -844,7 +895,7 @@ function finishStandalone(geo,name){
   const mt=new T.MeshPhongMaterial({color:0x7f8998,specular:0x333,shininess:45,side:T.DoubleSide,transparent:!0,opacity:.92});
   if(M){RT.remove(M);M.geometry.dispose()}
   M=new T.Mesh(geo,mt);M.raycast=acceleratedRaycast;RT.add(M);
-  C={};F=-1;clearGaps();
+  C={};F=-1;_vpos=null;invalidateFieldCache();
   O.forEach(g=>CG.remove(g));O=[];G={};A={};
   const b=new T.Box3().setFromObject(M),sz=b.getSize(new T.Vector3()),ctr=b.getCenter(new T.Vector3());
   RT.position.set(-ctr.x,-ctr.y,-ctr.z);M.updateMatrixWorld();S=Math.max(sz.x,sz.y,sz.z);
@@ -886,6 +937,7 @@ D('jsonFileInput').onchange=function(e){
         const id=c.id??0;
         C[id]={x:mm2u(c.center_3d?.x||c.x||0),y:mm2u(c.center_3d?.y||c.y||0),z:mm2u(c.center_3d?.z||c.z||0),nx:c.normal?.x||c.nx||0,ny:c.normal?.y||c.ny||0,nz:c.normal?.z||c.nz||1,r:c.radius_mm||c.radius||(c.width_mm||c.side||radius)/2,rot:c.rotation_deg||c.rot||0,id:id,label:c.label||'',pressure:c.pressure||0};
       });
+      invalidateFieldCache();updateHeatmap._lastKey=null;
       CO();RB();refreshBasket();refreshTable();refreshProps();_notify();
       msg('已加载 '+Object.keys(C).length+' 个Cell (需先导入模型)');
     }catch(err){msg('JSON解析失败: '+err.message,'e')}

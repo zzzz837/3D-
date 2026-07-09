@@ -7,61 +7,105 @@
 开始工作之前，请你阅读document\Agent开发规范.md
 我需要你解决和实现的内容是
 
-0. 当前力场预览仍然不符合需求，请不要只修 F1-F4。F1-F4 只是显示层问题，比如 vertexColors 显示、更新频率、采样密度、退出恢复材质，但真正的问题是：整个 Mesh 都被热力图覆盖了，没有 Cell 覆盖的区域也被着色。
+0. 
 
-我需要的不是“全模型热力图皮肤”，而是“由 Cell 压力驱动的局部压力场重建”。
+当前 beta4 力场预览已经可以显示局部色斑，说明：
 
-正确数据流必须是：
+Wendland → vertex.pressure → vertex.color
 
-Simulated Pressure / Real Pressure
-    ↓
-cell.pressure
-    ↓
-Wendland Reconstruction
-    ↓
-vertexPressure + vertexConfidence
-    ↓
-只在有 Cell 覆盖的 Mesh 区域显示热力图
+这条链路已经基本生效。
 
-禁止：
-
-time / sine wave / vertex position
-    ↓
-直接生成 Mesh 颜色
+现在不要再重点排查 vertexColors、Mesh 是否上色、Cell 是否能形成色斑。下一步需要修改的是：压力数据源、模拟力场、导入数值、手动输入数值的映射关系。
 
 ---
 
-## 1. 增加 vertexConfidence / coverage mask
+# 当前新问题
 
-每个 vertex 不仅要计算 pressure，还要计算 confidence。
+目前界面只有：
 
-```cpp
-pressureSum = 0;
-weightSum = 0;
+1.添加 Cell；
+2.点击“力场预览”。
 
-for each cell:
-    d = distance(vertex.position, cell.position);
-    r = d / query_radius;
+但是缺少我真正需要的三个功能状态：
 
-    if (r <= 1.0)
-    {
-        w = pow(1.0 - r, 4.0) * (4.0 * r + 1.0);
+1.手动压力模式；
+2.模拟压力模式；
+3.导入数据模式。
 
-        pressureSum += cell.pressure * w;
-        weightSum += w;
-    }
+当前我在两个 Cell 中输入了差距很大的力值，但从 Mesh 表面热斑上看，两者差异不明显。这说明当前颜色映射或 pressure 数据读取仍然没有正确反映用户输入值。
 
-if (weightSum > epsilon)
-{
-    vertexPressure = pressureSum / weightSum;
-    vertexConfidence = clamp(weightSum, 0.0, 1.0);
-}
-else
-{
-    vertexPressure = 0.0;
-    vertexConfidence = 0.0;
-}
+1. 
+
+## 当前背景
+
+当前 beta4 已经完成了以下功能基础：
+
+1.已经可以放置 Cell；
+2.已经有“力场预览”按钮；
+3.已经有“模拟压力”按钮；
+4.已经有“导入数据”按钮；
+5.已经有“手动压力 / 模拟压力 / 导入数据”模式；
+6.右侧属性栏已经出现“压力值”和“力场设置”；
+7.Mesh 表面已经能显示 Wendland 局部色斑；
+8.Cell 移动后，热斑能够跟随 Cell 移动；
+9.Wendland → vertex.pressure → vertex.color 这条链路已经基本生效。
+
+当前不要再重点排查：
+
+- vertexColors 是否生效；
+- Mesh 是否能上色；
+- Cell 周围是否能出现色斑；
+- 是否需要重写 Wendland 算法。
+
+现在的核心问题是：
+
+> 一开启力场预览，程序明显变卡；放置 Cell 不卡，但进入预览后进程变慢。
+
+模型规模很大，当前手套模型约 1498770 面，不能在每次刷新时全量遍历所有顶点并重建力场。
+
+---
+
+# 当前目标
+
+本轮目标不是继续修视觉细节，而是做 beta4 力场预览的性能优化。
+
+目标包括：
+
+1.手动压力模式下不再持续刷新；
+2.模拟压力模式才允许定时刷新；
+3.不再每次 updateHeatmap 全量遍历所有顶点；
+4.增加 Influence Cache；
+5.缓存 vertexLocalPositions；
+6.pressure 数值变化时只更新颜色，不重建几何影响关系；
+7.Cell 移动、添加、删除、半径变化、力场半径变化时才重建缓存；
+8.保证手动压力和模拟压力的功能仍然正确；
+9.保存项目时必须保留 pressure 字段；
+10.增加性能调试输出，确认优化是否生效。
+
+---
+
+# 一、请先确认性能瓶颈
+
+当前卡顿大概率来自类似逻辑：
+
+```js
+updateHeatmap()
+  ↓
+遍历全部 vertex
+  ↓
+每个 vertex 查询附近 Cell
+  ↓
+每个 vertex 计算 Wendland
+  ↓
+每个 vertex 写 vertexColor
+  ↓
+更新 geometry.attributes.color
 
 
+阅读完该文档，可以在D:\workshop\3D-\document\update\v1.0.0\beta4\问题清单.md   文档上更新问题清单，  对我进行提问确认问题
 
-阅读完该文档，D:\workshop\3D-\document\update\v1.0.0\beta3\问题清单.md   里面的问题是我解答的 如果有新问题请继续补充  对我进行提问确认问题
+---
+
+# 二、移除缺口检测功能
+
+已从"工具"菜单移除 🔍 缺口检测，对应 JS 函数 (`detectGaps` / `clearGaps`) 及 UI 元素 (`gapWarn`) 均已删除。参见 完成报告.md。
