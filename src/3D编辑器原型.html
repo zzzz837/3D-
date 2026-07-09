@@ -49,13 +49,12 @@ body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:#1e1e1e;colo
 <div class="menubar">
 <div class="menu-item" data-menu="file">文件<div class="menu-dropdown" id="menuFile"><div class="menu-entry" data-action="loadStl">📂 导入模型<span class="key">Ctrl+N</span></div><div class="menu-entry" data-action="openJson">📁 打开项目<span class="key">Ctrl+O</span></div><div class="menu-entry" data-action="saveJson">💾 保存项目<span class="key">Ctrl+S</span></div><div class="menu-entry" data-action="saveAs">📋 另存为<span class="key">Ctrl+Shift+S</span></div><div class="menu-sep"></div><div class="menu-entry" data-action="screenshot">📷 截图PNG</div></div></div>
 <div class="menu-item" data-menu="edit">编辑<div class="menu-dropdown" id="menuEdit"><div class="menu-entry" data-action="togglePlace">📍 放置模式<span class="key">P</span></div><div class="menu-entry" data-action="toggleEdit">✏️ 编辑/预览切换<span class="key">Tab</span></div><div class="menu-sep"></div><div class="menu-entry" data-action="undo">↩ 撤销<span class="key">Ctrl+Z</span></div><div class="menu-entry" data-action="redo">↪ 重做<span class="key">Ctrl+Y</span></div><div class="menu-entry" data-action="deleteCell">🗑 删除选中<span class="key">Del</span></div></div></div>
-<div class="menu-item" data-menu="view">视图<div class="menu-dropdown" id="menuView"><div class="menu-entry" data-action="togglePreview">👁 力场预览</div><div class="menu-entry" data-action="toggleSimulate">🌊 模拟压力</div><div class="menu-entry" data-action="importField">📥 导入数据</div><div class="menu-sep"></div><div class="menu-entry" data-action="wire">📐 线框模式<span class="key">W</span></div><div class="menu-entry" data-action="reset">🔄 重置视角</div></div></div>
+<div class="menu-item" data-menu="view">视图<div class="menu-dropdown" id="menuView"><div class="menu-entry" data-action="togglePreview">👁 力场预览</div><div class="menu-entry" data-action="toggleSimulate">🌊 模拟压力</div><div class="menu-sep"></div><div class="menu-entry" data-action="wire">📐 线框模式<span class="key">W</span></div><div class="menu-entry" data-action="reset">🔄 重置视角</div></div></div>
 <div class="menu-item" data-menu="tools">工具<div class="menu-dropdown" id="menuTools"><div class="menu-entry" data-action="toggleCollision">🛡 碰撞检测</div></div></div>
 <span style="color:#888;font-size:11px;margin-left:8px">3D拟物Layout编辑器</span></div>
 <div class="toolbar">
   <button id="tbPreview3D">力场预览</button>
   <button id="tbSimulate">模拟压力</button>
-  <button id="tbImportField">导入数据</button>
   <button id="tbPlace">放置模式</button>
   <button id="tbWire">线框</button>
   <button id="tbReset">重置视角</button>
@@ -63,7 +62,6 @@ body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:#1e1e1e;colo
 </div>
 <input type="file" id="stlFileInput" accept=".stl" style="display:none">
 <input type="file" id="jsonFileInput" accept=".json" style="display:none">
-<input type="file" id="fieldFileInput" accept=".json" style="display:none">
 <div class="top-metrics"><span>鼠标曲面: <b id="topMouse">—</b></span><span>相机距离/缩放: <b id="topZoom">—</b></span><span>单位: <b id="topUnit">1 mm/单位</b></span><span>默认半径: <b id="topCell">r=10mm</b></span></div>
 <div class="main">
   <div class="basket">
@@ -82,6 +80,7 @@ body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:#1e1e1e;colo
       <div class="field"><label>型号</label><input value="—" id="propModel"></div>
       <div class="field"><label>曲面</label><input class="ro" value="—" readonly></div>
       <div class="field"><label>面数</label><input class="ro" value="加载中..." id="propTri" readonly></div>
+      <div class="field" id="optRow" style="display:none"><label>模型优化</label><input class="ro" value="—" readonly id="propOpt" style="color:#4ec9b0"></div>
       <div class="field"><label>包围盒</label><input class="ro" value="—" id="propBox" readonly></div>
       <div class="field"><label>单位比例</label><input value="1" id="propUnit"><span class="unit">mm/单位</span></div></div>
     <div class="group"><h3 style="color:#FFD700;font-size:12px;margin-bottom:6px">选中 Cell <span id="selLabel" style="color:#888">(无)</span></h3>
@@ -95,14 +94,14 @@ body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:#1e1e1e;colo
       <div class="field"><label>重心</label><input class="ro" value="—" readonly id="propCentroid"></div>
       <div class="field"><label>半径</label><input value="10" id="propRadius"><span class="unit">mm</span></div>
       <div class="field"><label>标签</label><input value="" id="propLabel" placeholder="备注/标识"><span class="unit" style="font-size:10px">备注文本</span></div>
-      <div class="field"><label>压力值</label><input value="" id="propPressure" placeholder="0.0"><span class="unit">数值</span></div>
+      <div class="field"><label>压力值</label><input value="" id="propPressure" placeholder="0~1"><span class="unit">0~1</span></div>
       <div class="field"><label>面积</label><input class="ro" value="—" readonly id="propArea"><span class="unit">mm²</span></div>
       <div class="field"><label>旋转</label><input value="0.0" id="propRot"><span class="unit">°</span></div>
       <div class="field"><label>重叠</label><input class="ro" value="—" readonly id="propOv"></div>
       <div class="field"><label></label><label style="color:#999;cursor:pointer;font-size:11px"><input type="checkbox" checked id="propCollision">碰撞检测</label></div></div>
     <div class="group" id="fieldSettings" style="display:none"><h3 style="color:#4ec9b0;font-size:12px;margin-bottom:6px">力场设置</h3>
-      <div class="field"><label>模式</label><select id="fieldModeSelect" style="flex:1;background:#1e1e1e;border:1px solid #555;color:#ddd;padding:4px 8px;border-radius:3px;font-size:12px"><option value="manual">手动压力</option><option value="simulated">模拟压力</option><option value="real">导入数据</option></select></div>
-      <div class="field"><label>压力范围</label><input value="0" id="propPressureMin" style="width:60px;text-align:center"><span style="color:#888;margin:0 4px">~</span><input value="100" id="propPressureMax" style="width:60px;text-align:center"></div>
+      <div class="field"><label>模式</label><select id="fieldModeSelect" style="flex:1;background:#1e1e1e;border:1px solid #555;color:#ddd;padding:4px 8px;border-radius:3px;font-size:12px"><option value="manual">手动压力</option><option value="simulated">模拟压力</option></select></div>
+      <div class="field" id="presetRow" style="display:none"><label>模拟预设</label><select id="simPresetSelect" style="flex:1;background:#1e1e1e;border:1px solid #555;color:#ddd;padding:4px 8px;border-radius:3px;font-size:12px"><option value="wave">波浪 Wave</option><option value="uniform">均匀 Uniform</option><option value="pulse">脉冲 Pulse</option></select></div>
       <div class="field"><label>力场半径</label><input type="range" min="20" max="200" step="10" value="60" id="fieldRadiusSlider" style="flex:1;height:16px"><span class="unit" id="fieldRadiusLabel">60mm</span></div></div>
   </div>
 </div>
@@ -472,7 +471,6 @@ document.querySelectorAll('.menu-entry').forEach(entry=>{
     else if(action==='deleteCell'){if(typeof window.pyCommand!=='undefined')window.pyCommand('deleteCell');else if(F>=0){snapShot();delete C[F];removeCellMesh(F);F=-1;invalidateFieldCache();updateHeatmap._lastKey=null;CO();HL();refreshBasket();refreshTable();refreshProps()}}
     else if(action==='togglePreview'){D('tbPreview3D').click()}
     else if(action==='toggleSimulate'){D('tbSimulate').click()}
-    else if(action==='importField'){D('tbImportField').click()}
     else if(action==='wire'){D('tbWire').click()}
     else if(action==='reset'){D('tbReset').click()}
     else if(action==='toggleCollision'){collisionEnabled=!collisionEnabled;D('propCollision').checked=collisionEnabled;msg(collisionEnabled?'碰撞检测已开启':'碰撞检测已关闭')}
@@ -490,10 +488,9 @@ D('tbPreview3D').onclick=()=>togglePreview();
 
 // ══════════ Wendland 力场重建 (三模式 + 性能缓存) ══════════
 let PREVIEW=!1,HEAT_INTERVAL=null,SIM_INTERVAL=null;
-let FIELD_MODE='manual',FIELD_R=60,_importedField={},_origMaterial=null;
+let FIELD_MODE='manual',FIELD_R=60,_origMaterial=null,SIM_PRESET='wave';
 let SIMULATE_ON=!1;
-let pressureMin=0,pressureMax=100;
-const MODEL_GREY=new T.Color(0x7f8998);
+const MODEL_GREY=new T.Color(0x7f8998),SIM_INTERVAL_MS=40;
 
 // ── 性能缓存 ──
 let _vpos=null,_ioff=null,_icell=null,_iwgt=null,_cv=null,_cacheOk=!1,_cacheFR=0;
@@ -513,14 +510,7 @@ else if(t<.875){const s=(t-.625)/.25;r=255;g=255*(1-s);b=0}
 else{const s=(t-.875)/.125;r=255*(1-s*.5);g=0;b=0}
 return new T.Color(r/255,g/255,b/255)}
 
-function readPressureRange(){
-  pressureMin=parseFloat(D('propPressureMin').value);pressureMax=parseFloat(D('propPressureMax').value);
-  if(!Number.isFinite(pressureMin))pressureMin=0;if(!Number.isFinite(pressureMax)||pressureMax<=pressureMin)pressureMax=pressureMin+100;
-  D('propPressureMin').value=pressureMin;D('propPressureMax').value=pressureMax;
-}
-
 function getCellPressures(cells){
-  if(FIELD_MODE==='real')return _importedField;
   const p={};cells.forEach(c=>{const v=parseFloat(c.pressure);p[c.id]=Number.isFinite(v)?v:0});return p;
 }
 
@@ -545,11 +535,36 @@ function queryBucketCells(lx,ly,lz){
   return r;
 }
 
-// ── 模拟压力 ──
+// ── 模拟压力 (三预设) ──
 function updateSimPressures(){
   const cells=Object.values(C);if(!cells.length)return;
-  const now=Date.now()/1000;
-  cells.forEach(c=>{const phase=(c.id+1)*0.73,freq=0.25+(c.id%7)*0.12,base=pressureMin+(pressureMax-pressureMin)*0.2,amp=(pressureMax-pressureMin)*0.35;c.pressure=base+amp*(0.5+0.5*Math.sin(now*freq+phase))});
+  const t=performance.now()/1000;
+  if(SIM_PRESET==='uniform')simUniform(cells,t);
+  else if(SIM_PRESET==='pulse')simPulse(cells,t);
+  else simWave(cells,t);
+}
+function simUniform(cells,t){
+  cells.forEach(c=>{c.pressure=Math.max(0,Math.min(1,0.2+0.6*(0.5+0.5*Math.sin(t*1.0))))});
+}
+function simWave(cells,t){
+  cells.forEach(c=>{
+    const phase=(c.id+1)*0.73,freq=0.3+(c.id%7)*0.15;
+    c.pressure=Math.max(0,Math.min(1,0.15+0.7*(0.5+0.5*Math.sin(t*freq+phase))));
+  });
+}
+let _pulseHotspots=null,_pulseTimer=0,_pulseCycle=0;
+function simPulse(cells,t){
+  const cycleLen=2.5; if(t-_pulseTimer>cycleLen||!_pulseHotspots||_pulseHotspots.every(h=>!C[h])){
+    _pulseTimer=t;_pulseCycle++; const arr=cells.filter(()=>Math.random()<0.15);
+    _pulseHotspots=arr.length?arr.map(c=>c.id):[cells[0].id];
+  }
+  const base=0.1,amp=0.9;
+  const hotspotSet=new Set(_pulseHotspots);
+  cells.forEach(c=>{
+    if(hotspotSet.has(c.id)){
+      const localT=((t-_pulseTimer)/cycleLen);c.pressure=Math.max(0,Math.min(1,base+amp*Math.pow(Math.sin(Math.PI*localT),2)));
+    }else{c.pressure=base}
+  });
 }
 
 // ── 重建影响关系缓存 (Cell位置/半径变化时调用) ──
@@ -586,13 +601,13 @@ function rebuildFieldCache(cells,fieldRadiusU){
 
 // ── 快速着色 (只遍历覆盖顶点，不清除未覆盖区域) ──
 function applyFieldColors(cellPressures){
-  const t0=performance.now(),geo=M.geometry,col=geo.attributes.color,range=pressureMax-pressureMin||1,th=0.01;let cov=0;
+  const t0=performance.now(),geo=M.geometry,col=geo.attributes.color,th=0.01;let cov=0;
   const ncv=_cv.length;
   for(let k=0;k<ncv;k++){const i=_cv[k],s=_ioff[i],e=_ioff[i+1];let num=0,den=0;
     for(let j=s;j<e;j++){const p=cellPressures[_icell[j]]||0,w=_iwgt[j];num+=p*w;den+=w}
     if(den<=1e-6)continue;
     const pr=num/den,cf=Math.min(1,den);if(cf<=th)continue;
-    cov++;const t=Math.max(0,Math.min(1,(pr-pressureMin)/range)),jc=jetColor(t),fc=MODEL_GREY.clone().lerp(jc,cf);col.setXYZ(i,fc.r,fc.g,fc.b)}
+    cov++;const t=Math.max(0,Math.min(1,pr)),jc=jetColor(t),fc=MODEL_GREY.clone().lerp(jc,cf);col.setXYZ(i,fc.r,fc.g,fc.b)}
   col.needsUpdate=!0;M.material.vertexColors=!0;
   return performance.now()-t0;
 }
@@ -601,7 +616,7 @@ function applyFieldColors(cellPressures){
 function updateHeatmap(){
   if(!PREVIEW||!M)return;
   const cells=Object.values(C);if(!cells.length)return;
-  readPressureRange();
+  
   const cellPressures=getCellPressures(cells);
   const activeCells=cells.filter(c=>cellPressures[c.id]!==undefined);
   if(!activeCells.length){msg('请在Cell属性面板中输入压力数值','w');return}
@@ -620,15 +635,7 @@ function updateHeatmap(){
 function setFieldMode(mode){
   FIELD_MODE=mode;D('fieldModeSelect').value=mode;
   if(mode==='simulated'){msg('模拟压力模式：Cell压力将自动动态变化')}
-  else if(mode==='real'){msg('导入数据模式：使用外部导入的压力数据')}
   else{msg('手动压力模式：使用Cell属性面板中的压力值')}
-}
-function importFieldJSON(jsonStr){
-  try{const d=JSON.parse(jsonStr);_importedField=d.cells||d;
-    if(d.range&&d.range.length===2){pressureMin=+d.range[0];pressureMax=+d.range[1];D('propPressureMin').value=pressureMin;D('propPressureMax').value=pressureMax}
-    setFieldMode('real');updateHeatmap._lastKey=null;if(PREVIEW)updateHeatmap();
-    msg('已导入 '+Object.keys(_importedField).length+' 个压力值')}
-  catch(e){msg('JSON解析错误:'+e.message,'e')}
 }
 
 // ── 力场预览开关 ──
@@ -639,10 +646,10 @@ function togglePreview(){
     if(M&&M.material){_origMaterial={color:M.material.color.getHex(),opacity:M.material.opacity};M.material.color.set(0xffffff);M.material.opacity=0.95}
     updateHeatmap._lastKey=null;updateHeatmap();
     O.forEach(g=>g.children.forEach(ch=>{if(ch.userData&&ch.userData.isLabel)ch.visible=!0}));
-    readPressureRange();
+    
     // 仅模拟模式需要定时器; 手动/real模式压力和缓存不变时零开销
     if(FIELD_MODE==='simulated'&&SIMULATE_ON){HEAT_INTERVAL=setInterval(updateHeatmap,500)}
-    msg('力场预览 ON | R='+FIELD_R+'mm | range=['+pressureMin+','+pressureMax+'] | mode='+FIELD_MODE)}
+    msg('力场预览 ON | R='+FIELD_R+'mm | mode='+FIELD_MODE)}
   else{
     fs.style.display='none';D('tbPreview3D').classList.remove('active');
     clearInterval(HEAT_INTERVAL);HEAT_INTERVAL=null;
@@ -655,25 +662,22 @@ function togglePreview(){
 // ── 模拟压力开关 ──
 function toggleSimulate(){
   if(SIMULATE_ON){SIMULATE_ON=!1;clearInterval(SIM_INTERVAL);SIM_INTERVAL=null;clearInterval(HEAT_INTERVAL);HEAT_INTERVAL=null;
-    D('tbSimulate').classList.remove('active');msg('模拟压力已关闭 — pressure停止变化')}
-  else{SIMULATE_ON=!0;D('tbSimulate').classList.add('active');setFieldMode('simulated');
-    if(PREVIEW){SIM_INTERVAL=setInterval(()=>{updateSimPressures();updateHeatmap._lastKey=null},300);
-      HEAT_INTERVAL=setInterval(updateHeatmap,500)}
-    msg('模拟压力已开启 — Cell压力自动动态变化')}
+    D('tbSimulate').classList.remove('active');D('presetRow').style.display='none';_pulseHotspots=null;msg('模拟压力已关闭')}
+  else{SIMULATE_ON=!0;D('tbSimulate').classList.add('active');setFieldMode('simulated');D('presetRow').style.display='flex';
+    if(PREVIEW){SIM_INTERVAL=setInterval(()=>{updateSimPressures();updateHeatmap._lastKey=null},SIM_INTERVAL_MS);
+      HEAT_INTERVAL=setInterval(updateHeatmap,SIM_INTERVAL_MS*2)}
+    msg('模拟压力已开启 ('+SIM_PRESET+' | '+SIM_INTERVAL_MS+'ms)')}
 }
 D('tbSimulate').onclick=()=>toggleSimulate();
 
-D('tbImportField').onclick=()=>{D('fieldFileInput').click()};
-D('fieldFileInput').onchange=function(){if(!this.files.length)return;const r=new FileReader();r.onload=ev=>{importFieldJSON(ev.target.result)};r.readAsText(this.files[0]);this.value=''};
+D('simPresetSelect').onchange=()=>{SIM_PRESET=D('simPresetSelect').value;_pulseHotspots=null;updateHeatmap._lastKey=null;msg('模拟预设: '+SIM_PRESET)};
 
 D('fieldModeSelect').onchange=()=>{const mode=D('fieldModeSelect').value;
   if(mode==='simulated'){toggleSimulate()}
-  else{SIMULATE_ON=!1;clearInterval(SIM_INTERVAL);SIM_INTERVAL=null;clearInterval(HEAT_INTERVAL);HEAT_INTERVAL=null;D('tbSimulate').classList.remove('active');setFieldMode(mode)}
+  else{SIMULATE_ON=!1;clearInterval(SIM_INTERVAL);SIM_INTERVAL=null;clearInterval(HEAT_INTERVAL);HEAT_INTERVAL=null;D('tbSimulate').classList.remove('active');D('presetRow').style.display='none';_pulseHotspots=null;setFieldMode(mode)}
   updateHeatmap._lastKey=null;if(PREVIEW)updateHeatmap()};
 
 D('fieldRadiusSlider').oninput=()=>{FIELD_R=parseInt(D('fieldRadiusSlider').value)||60;D('fieldRadiusLabel').textContent=FIELD_R+'mm';invalidateFieldCache();updateHeatmap._lastKey=null};
-D('propPressureMin').onchange=()=>{readPressureRange();updateHeatmap._lastKey=null;if(PREVIEW&&FIELD_MODE!=='simulated')updateHeatmap()};
-D('propPressureMax').onchange=()=>{readPressureRange();updateHeatmap._lastKey=null;if(PREVIEW&&FIELD_MODE!=='simulated')updateHeatmap()};
 // ══════════════ END Wendland 力场重建 ══════════════
 // ══════════════ END Wendland 力场重建 ══════════════
 D('tbReset').onclick=()=>{if(!RT||!CT||!CA)return;const b=new T.Box3().setFromObject(RT),sz=b.getSize(new T.Vector3()),md=Math.max(sz.x,sz.y,sz.z);CT.target.set(0,0,0);CA.position.set(md*.55,-md*0.8,md*.55);CA.lookAt(0,0,0);CT.update()};
@@ -683,7 +687,7 @@ D('basketDrag').onclick=()=>{const id=getFreeId();if(id<0){msg('篮子已满','w
 D('propUnit').onchange=()=>{const v=parseFloat(D('propUnit').value);if(v>0){unitMM=v;D('topUnit').textContent=unitMM+' mm/单位';updateBoxInfo();if(Object.keys(C).length===0)setDefaultsFromModel();CO();RB();refreshProps();refreshTable();msg('单位比例已更新：1模型单位='+unitMM+'mm')}else{D('propUnit').value=unitMM}};
 D('propRadius').onchange=()=>{const v=parseFloat(D('propRadius').value);if(v>0){const sl=setRadius(v);if(F>=0&&C[F]){C[F].r=sl;CO();addOrUpdateCell(F);refreshProps();refreshTable()}}else{D('propRadius').value=radius.toFixed(1);msg('半径必须大于0','w')}};
 D('propLabel').onchange=()=>{if(F>=0&&C[F]){C[F].label=D('propLabel').value.trim();addOrUpdateCell(F);refreshProps()}};
-D('propPressure').onchange=()=>{if(F>=0&&C[F]){C[F].pressure=parseFloat(D('propPressure').value)||0;updateHeatmap._lastKey=null;addOrUpdateCell(F);refreshProps();if(PREVIEW&&FIELD_MODE!=='simulated')updateHeatmap()}};
+D('propPressure').onchange=()=>{if(F>=0&&C[F]){let v=parseFloat(D('propPressure').value);v=Number.isFinite(v)?Math.max(0,Math.min(1,v)):0;D('propPressure').value=v;C[F].pressure=v;updateHeatmap._lastKey=null;addOrUpdateCell(F);refreshProps();if(PREVIEW&&FIELD_MODE!=='simulated')updateHeatmap()}};
 D('propRot').onchange=()=>{if(F>=0&&C[F]){C[F].rot=parseFloat(D('propRot').value)||0;addOrUpdateCell(F);refreshProps()}};
 D('propCollision').onchange=()=>{collisionEnabled = D('propCollision').checked; msg(collisionEnabled?'碰撞检测已开启':'碰撞检测已关闭 — Cell可重叠放置')};
 
@@ -754,17 +758,33 @@ window.pyCommand=function(cmd,data){
     else if(cmd==='exportCells'){const cells=[];for(const c of Object.values(C))cells.push({id:c.id,center_3d:{x:+u2mm(c.x).toFixed(4),y:+u2mm(c.y).toFixed(4),z:+u2mm(c.z).toFixed(4)},normal:{x:+c.nx.toFixed(4),y:+c.ny.toFixed(4),z:+c.nz.toFixed(4)},radius_mm:c.r,width_mm:c.r*2,height_mm:c.r*2,rotation_deg:c.rot||0,label:c.label||'',pressure:c.pressure||0});sendBridge('exportCells',{cells:cells,total_points:MAX})}
     else if(cmd==='importCells'&&Array.isArray(data)){snapShot();C={};data.forEach(c=>{if(c.id>=0&&c.id<MAX)C[c.id]={x:mm2u(c.x||c.center_3d?.x||0),y:mm2u(c.y||c.center_3d?.y||0),z:mm2u(c.z||c.center_3d?.z||0),nx:c.nx||c.normal?.x||0,ny:c.ny||c.normal?.y||0,nz:c.nz||c.normal?.z||1,r:c.radius_mm||c.radius||(c.width_mm||c.side||radius)/2,rot:c.rot||c.rotation_deg||0,id:c.id,label:c.label||'',pressure:parseFloat(c.pressure)||0}});F=-1;invalidateFieldCache();updateHeatmap._lastKey=null;CO();RB();refreshBasket();refreshTable();refreshProps();_notify()}
     else if(cmd==='loadStl'&&(data.url||data.b64)){
+      // 轻量清理: 停止预览/模拟 + 清除旧模型和缓存 (保留unitMM/radius/MAX)
+      PREVIEW=!1;SIMULATE_ON=!1;
+      clearInterval(HEAT_INTERVAL);HEAT_INTERVAL=null;clearInterval(SIM_INTERVAL);SIM_INTERVAL=null;
+      D('tbPreview3D').classList.remove('active');D('tbSimulate').classList.remove('active');
+      D('fieldSettings').style.display='none';D('presetRow').style.display='none';
+      if(M){if(M.geometry)M.geometry.dispose();RT.remove(M);M=null}
+      O.forEach(g=>CG.remove(g));O=[];G={};A={};SURF=null;
+      _vpos=null;_ioff=null;_icell=null;_iwgt=null;_cv=null;_cacheOk=!1;_origMaterial=null;
+      updateHeatmap._lastKey=null;_pulseHotspots=null;
+      FIELD_MODE='manual';SIM_PRESET='wave';D('fieldModeSelect').value='manual';D('simPresetSelect').value='wave';
+      FIELD_R=60;D('fieldRadiusSlider').value=60;D('fieldRadiusLabel').textContent='60mm';
+      console.log('[loadStl] received',{url:data.url?data.url.substring(0,50):'base64',format:data.format,cells:data.cells?data.cells.length:0});
       if(!RT){msg('WebGL不可用，无法加载模型','e');return}
       const fmt=(data.format||'stl').toLowerCase();
       const setupModel=(geo,name)=>{
         if(!geo){msg('模型加载失败: 无法解析几何体','e');return}
         geo.computeVertexNormals();
-        SL('构建BVH...');geo.computeBoundsTree();
+        // 模型面数显示 + 超大模型提示 (降采样接口预留, SimplifyModifier对大模型过慢暂不启用)
+        const origFaces=geo.index?geo.index.count/3:geo.attributes.position.count/3;
+        if(origFaces>500000){D('optRow').style.display='flex';D('propOpt').value=origFaces+'面 (大模型, 力场预览性能优化已启用)';msg('大模型: '+origFaces+'面, 性能优化已启用')}
+        else{D('optRow').style.display='none'}
+        SL('构建BVH...');let useAccel=!0;try{geo.computeBoundsTree()}catch(e){console.warn('BVH构建失败,使用默认raycast:',e);useAccel=!1}
         const n=geo.index?geo.index.count/3:geo.attributes.position.count/3;
         D('propTri').value=n; D('propModel').value=name||'模型'; D('sModel').textContent=name||'模型';
         const mt=new T.MeshPhongMaterial({color:0x7f8998,specular:0x333,shininess:45,side:T.DoubleSide,transparent:!0,opacity:.92});
         if(M){RT.remove(M);M.geometry.dispose()}
-        M=new T.Mesh(geo,mt);M.raycast=acceleratedRaycast;RT.add(M);
+        M=new T.Mesh(geo,mt);M.raycast=useAccel?acceleratedRaycast:T.Mesh.prototype.raycast;RT.add(M);
         C={};F=-1;_vpos=null;invalidateFieldCache();
         O.forEach(g=>CG.remove(g));O=[];G={};A={};
         const b=new T.Box3().setFromObject(M),sz=b.getSize(new T.Vector3()),ctr=b.getCenter(new T.Vector3());
@@ -846,7 +866,6 @@ window.pyCommand=function(cmd,data){
     else if(cmd==='togglePreview'){togglePreview()}
     else if(cmd==='toggleSimulate'){toggleSimulate()}
     else if(cmd==='screenshot'){R.render(SC,CA);setTimeout(()=>{const dataURL=R.domElement.toDataURL('image/png');const b64=dataURL.split(',')[1];sendBridge('screenshotData',{data:b64,path:data.path||''})},100)}
-    else if(cmd==='importField'&&data.json){importFieldJSON(data.json)}
     else if(cmd==='setFieldMode'&&data.mode){setFieldMode(data.mode)}
     else if(cmd==='escape'){F=-1;HL();refreshProps();refreshTable();refreshBasket();_notify()}
   }catch(e){sendBridge('error',{msg:e.message})}
@@ -869,8 +888,8 @@ D('stlFileInput').onchange=function(e){
       const buf=ev.target.result;
       if(ext==='stl'){
         const geo=new STLLoader().parse(buf);
-        geo.computeVertexNormals();SL('构建BVH...');geo.computeBoundsTree();
-        finishStandalone(geo,file.name);
+        geo.computeVertexNormals();SL('构建BVH...');let us=!0;try{geo.computeBoundsTree()}catch(e){console.warn('BVH failed:',e);us=!1}
+        finishStandalone(geo,file.name,us);
       }else if(ext==='obj'){
         const text=new TextDecoder().decode(new Uint8Array(buf));
         const obj=new OBJLoader().parse(text);
@@ -889,12 +908,12 @@ D('stlFileInput').onchange=function(e){
   if(ext==='obj')reader.readAsText(file);
   else reader.readAsArrayBuffer(file);
 };
-function finishStandalone(geo,name){
+function finishStandalone(geo,name,useAccel){
   if(!geo){msg('无法解析几何体','e');return}
   const n=geo.index?geo.index.count/3:geo.attributes.position.count/3;
   const mt=new T.MeshPhongMaterial({color:0x7f8998,specular:0x333,shininess:45,side:T.DoubleSide,transparent:!0,opacity:.92});
   if(M){RT.remove(M);M.geometry.dispose()}
-  M=new T.Mesh(geo,mt);M.raycast=acceleratedRaycast;RT.add(M);
+  M=new T.Mesh(geo,mt);M.raycast=useAccel?acceleratedRaycast:T.Mesh.prototype.raycast;RT.add(M);
   C={};F=-1;_vpos=null;invalidateFieldCache();
   O.forEach(g=>CG.remove(g));O=[];G={};A={};
   const b=new T.Box3().setFromObject(M),sz=b.getSize(new T.Vector3()),ctr=b.getCenter(new T.Vector3());

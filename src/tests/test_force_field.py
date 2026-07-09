@@ -331,5 +331,98 @@ class TestWendlandReconstruction:
         assert result[0] is None
 
 
+class TestSimPresets:
+    """v1.0.1 模拟压力预设: Uniform/Wave/Pulse"""
+
+    def _sim_uniform(self, cells, t, p_min=0, p_max=100):
+        base = p_min + (p_max - p_min) * 0.25
+        amp = (p_max - p_min) * 0.4
+        for c in cells:
+            c["pressure"] = base + amp * (0.5 + 0.5 * math.sin(t * 1.0))
+
+    def test_uniform_all_cells_same_pressure(self):
+        cells = [{"id": i} for i in range(10)]
+        self._sim_uniform(cells, t=0.0, p_min=0, p_max=100)
+        pressures = [c["pressure"] for c in cells]
+        assert all(abs(p - pressures[0]) < 0.01 for p in pressures)
+
+    def test_uniform_pressure_in_range(self):
+        cells = [{"id": i} for i in range(10)]
+        for t_val in [0, 1, 2, 3, 10]:
+            self._sim_uniform(cells, t=t_val, p_min=0, p_max=100)
+            for c in cells:
+                assert 0 <= c["pressure"] <= 100
+
+    def _sim_wave(self, cells, t, p_min=0, p_max=100):
+        for c in cells:
+            phase = (c["id"] + 1) * 0.73
+            freq = 0.3 + (c["id"] % 7) * 0.15
+            base = p_min + (p_max - p_min) * 0.2
+            amp = (p_max - p_min) * 0.35
+            c["pressure"] = base + amp * (0.5 + 0.5 * math.sin(t * freq + phase))
+
+    def test_wave_different_cells_have_different_phase(self):
+        cells = [{"id": i} for i in range(10)]
+        self._sim_wave(cells, t=5.0, p_min=0, p_max=100)
+        vals = [round(c["pressure"], 1) for c in cells]
+        assert len(set(vals)) > 1  # Not all identical
+
+    def test_wave_pressure_in_range(self):
+        cells = [{"id": i} for i in range(10)]
+        for t_val in [0, 1, 5, 10, 100]:
+            self._sim_wave(cells, t=t_val, p_min=20, p_max=80)
+            for c in cells:
+                assert 20 <= c["pressure"] <= 80
+
+    def test_wave_changes_over_time(self):
+        cells = [{"id": 0}, {"id": 1}]
+        self._sim_wave(cells, t=0.0, p_min=0, p_max=100)
+        p1_before = [c["pressure"] for c in cells]
+        self._sim_wave(cells, t=1.0, p_min=0, p_max=100)
+        p1_after = [c["pressure"] for c in cells]
+        changed = any(abs(p1_before[i] - p1_after[i]) > 0.01 for i in range(len(cells)))
+        assert changed
+
+    def test_wave_pressure_written_to_cell(self):
+        """preset 只写 C[id].pressure，不返回独立 map"""
+        cells = [{"id": 0}, {"id": 1}]
+        self._sim_wave(cells, t=1.0)
+        assert "pressure" in cells[0]
+        assert isinstance(cells[0]["pressure"], float)
+
+    def _sim_pulse(self, cells, t, cycle=0, p_min=0, p_max=100):
+        cycle_len = 2.5
+        hotspot_ids = {cells[i % len(cells)]["id"] for i in range(min(3, len(cells)))}
+        base = p_min + (p_max - p_min) * 0.15
+        amp = (p_max - p_min) * 0.5
+        for c in cells:
+            if c["id"] in hotspot_ids:
+                local_t = max(0, min(1, t / cycle_len))
+                c["pressure"] = base + amp * math.pow(math.sin(math.pi * local_t), 2)
+            else:
+                c["pressure"] = base
+
+    def test_pulse_hotspot_higher_than_background(self):
+        cells = [{"id": i} for i in range(10)]
+        self._sim_pulse(cells, t=0.5, p_min=0, p_max=100)
+        hotspot_p = [c["pressure"] for c in cells if c["id"] < 3]
+        bg_p = [c["pressure"] for c in cells if c["id"] >= 3]
+        assert max(hotspot_p) > max(bg_p) * 1.5
+
+    def test_pulse_pressure_in_range(self):
+        cells = [{"id": i} for i in range(20)]
+        for t_val in [0.1, 0.5, 1.0, 1.5, 2.0]:
+            self._sim_pulse(cells, t=t_val, p_min=0, p_max=100)
+            for c in cells:
+                assert 0 <= c["pressure"] <= 100
+
+    def test_pulse_written_to_cell_pressure(self):
+        cells = [{"id": i} for i in range(5)]
+        self._sim_pulse(cells, t=1.0)
+        for c in cells:
+            assert "pressure" in c
+            assert isinstance(c["pressure"], float)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

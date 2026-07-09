@@ -69,6 +69,7 @@ class Bridge(QObject):
                         self.statusMsg.emit(f"截图失败: {ex}")
             elif e == "error":
                 print(f"[JS Error] {d.get('msg','?')}", flush=True)
+                QMessageBox.warning(None, "模型加载错误", d.get('msg','未知错误'))
             elif e == "modelLoaded":
                 rec = d.get("recommendedChannels",0)
                 self.statusMsg.emit(
@@ -517,15 +518,21 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "打开失败", str(e))
 
     def _open_package(self, path):
+        print(f"[open] reading {path}", flush=True)
         with zipfile.ZipFile(path, 'r') as zf:
+            names = zf.namelist()
+            print(f"[open] zip contents: {names}", flush=True)
             project_data = json.loads(zf.read("project.json").decode("utf-8"))
             model_name = project_data.get("model_file", "model.stl")
+            print(f"[open] model_file={model_name} model_format={project_data.get('model_format','?')}", flush=True)
             if model_name in zf.namelist():
                 raw = zf.read(model_name)
+                print(f"[open] model raw size={len(raw)} bytes", flush=True)
             else:
                 raise FileNotFoundError(f"模型文件 {model_name} 在包中未找到")
         self._model_name = model_name
         self._model_format = project_data.get("model_format") or Path(model_name).suffix.lstrip('.').lower()
+        print(f"[open] resolved format={self._model_format}", flush=True)
         self._model_b64 = None
         self._project_info = {
             "name": project_data.get("project_name", ""),
@@ -535,21 +542,25 @@ class MainWindow(QMainWindow):
         }
         cells = project_data.get("cells", [])
         total = project_data.get("total_points", len(cells))
+        print(f"[open] cells={len(cells)} total_points={total}", flush=True)
 
         cache_dir = os.path.join(find_root(), "src", "_model_cache")
         os.makedirs(cache_dir, exist_ok=True)
         cache_path = os.path.join(cache_dir, model_name)
         Path(cache_path).write_bytes(raw)
         self._model_cache_path = cache_path
+        print(f"[open] cache_path={cache_path}", flush=True)
 
-        # Verify file written completely before sending fetch URL
         actual_size = Path(cache_path).stat().st_size
+        print(f"[open] cache_size={actual_size} (raw={len(raw)})", flush=True)
         if actual_size != len(raw):
             QMessageBox.warning(self, "文件错误", f"模型缓存写入不完整: {actual_size} vs {len(raw)}")
             return
 
+        url = f"/src/_model_cache/{quote(model_name)}"
+        print(f"[open] loadStl URL={url} format={self._model_format} cells={len(cells)}", flush=True)
         self.bridge.cmd("loadStl", {
-            "url": f"/src/_model_cache/{quote(model_name)}",
+            "url": url,
             "name": model_name,
             "cells": cells,
             "total_points": total,
