@@ -1,223 +1,197 @@
-# 3D Pressure Reconstruction Algorithm Specification
+# beta4 力场重建算法说明
 
-> **版本**: beta4 最终版
-> **更新**: 2026-07-09 — 基于仿真对比结果 + 代码实现定稿
-> **状态**: ✅ Wendland C2 已集成到生产环境 (src/3D编辑器原型.html)
-> **备选**: ○ Graph Laplacian (稀疏场景降级, 待后续版本)
+> **版本**: beta4 | **更新**: 2026-07-09 | **状态**: 已集成生效
 
 ---
 
-## 1. 最终方案：Wendland C2 紧支撑核加权插值
+## 1. 概述
 
-> 选型依据：5 场景 × 8 指标仿真对比 (仿真框架 ~1500行 Python, 详见 `仿真/3D压力场重建仿真对比报告.md`)
-
-### 1.1 物理模型
-
-将每个 Cell 视为连续压力场的**离散采样点**。对 Mesh 上每个顶点，在其影响半径内查询邻域 Cell，使用 Wendland C2 核函数计算权重并做加权平均。属于 **局部加权插值 (Local Weighted Interpolation)**，不是压力叠加。
-
-### 1.2 Wendland C2 核函数
-
-归一化距离 $r = d / R$，$d$ 为顶点到 Cell 中心距离，$R$ 为影响半径 (FIELD_R, 默认 60mm)：
-
-$$
-\varphi(r) = \begin{cases}
-(1-r)^4 (4r+1), & 0 \le r \le 1 \\
-0, & r > 1
-\end{cases}
-$$
-
-**核心性质**：
-- **紧支撑**: $r \ge 1$ 时严格为零，无硬截断伪影 → 边缘自然渐隐 (edge_decay = 0.90)
-- **C2 光滑**: $r=1$ 处 $\varphi = \varphi' = \varphi'' = 0$，全部连续 → 无视觉伪影
-- **严格正定**: 在 $\mathbb{R}^5$ 及以下所有维度正定
-
-### 1.3 加权平均公式
-
-对顶点 $v$：
-
-$$
-P(v) = \frac{\sum_i P_i \cdot \varphi(r_i)}{\sum_i \varphi(r_i)} \times \min\!\big(1,\; \sum_i \varphi(r_i)\big)
-$$
-
-- **分子/分母归一化 (Shepard-like)**: 消除传感器密度假象（密集区域不偏亮）
-- **min(1, Σw) 置信度衰减**: Coverage 不足时自然渐隐，避免边缘硬切
-
-### 1.4 最终着色公式
+将离散 Cell 压力值重建为 3D Mesh 表面连续压力场并渲染热力图。
 
 ```
-vertexColor = MODEL_GREY.lerp(jetColor(normalizedPressure), confidence)
+Cell[i].pressure → getCellPressures() → applyFieldColors() → vertexColors → 热力图
+                           ↑                      ↑
+                   手动/模拟/导入三模式       CSR缓存 + _cv遍历
 ```
 
-其中：
-- `normalizedPressure = clamp((P - pressureMin) / (pressureMax - pressureMin), 0, 1)` — 用户定义归一化
-- `confidence = min(1, Σφ)` — Wendland 权重和
-- `MODEL_GREY = rgb(0x7f8998)` — 未覆盖区域底色
+---
 
-无 Cell 覆盖的顶点保持灰色，热力图仅出现在 Cell 影响范围内。
+## 2. 核心公式
 
-### 1.5 距离度量
+### 2.1 Wendland C2 核函数
 
-| 当前 | 方法 | 后续升级方向 |
-|------|------|-------------|
-| ✅ | **Euclidean Distance** | 3D 空间直线距离，曲面平坦时可用 |
-| ○ | Geodesic Distance | 沿曲面测地距离，需 BVH/Mesh，精度更高 |
+归一化距离 $r = d / R$，$d$ 为顶点到Cell中心距离，$R$ 为影响半径(FIELD_R, 默认60mm)：
 
-### 1.6 参数配置
+$$
+\varphi(r) = (1-r)^4 (4r+1), \quad 0 \le r \le 1
+$$
+$$
+\varphi(r) = 0, \quad r > 1
+$$
 
-| 参数 | 默认值 | 范围 | 状态 |
+**性质**: 紧支撑(r≥1严格为零) · C2光滑(r=1处 φ=φ'=φ''=0) · 严格正定
+
+### 2.2 加权平均
+
+$$
+P(v) = \frac{\sum_i P_i \cdot \varphi(r_i)}{\sum_i \varphi(r_i)} \times \min(1,\;\sum_i \varphi(r_i))
+$$
+
+- 分子/分母归一化：消除Cell密度假象
+- min(1, Σw)：置信度衰减，coverage不足时渐隐
+
+### 2.3 着色
+
+$$
+t = clamp\big(\frac{P - p_{min}}{p_{max} - p_{min}},\;0,\;1\big)
+$$
+$$
+color = grey \cdot (1-confidence) + jet(t) \cdot confidence
+$$
+$$
+confidence = \min(1,\;\sum_i \varphi(r_i))
+$$
+
+无Cell覆盖的顶点保持灰色(0x7f8998)，热力图仅出现在Cell影响半径内。
+
+---
+
+## 3. JS 实现
+
+### 3.1 核函数
+
+```js
+function wendlandPhi(r) {
+  return r >= 1 ? 0 : Math.pow(1 - r, 4) * (4 * r + 1);
+}
+```
+
+### 3.2 Jet 色彩映射
+
+```
+t=0     → 深蓝 (0,0,128)
+t=0.125 → 纯蓝 (0,0,255)
+t=0.375 → 青色 (0,255,255)
+t=0.625 → 黄色 (255,255,0)
+t=0.875 → 红色 (255,0,0)
+t=1     → 深红 (128,0,0)
+```
+
+```js
+function jetColor(t) {
+  t = Math.max(0, Math.min(1, t));
+  let r, g, b;
+  if (t < .125) { const s = t / .125; r = 0; g = 0; b = 128 + 127 * s }
+  else if (t < .375) { const s = (t - .125) / .25; r = 0; g = 255 * s; b = 255 }
+  else if (t < .625) { const s = (t - .375) / .25; r = 255 * s; g = 255; b = 255 * (1 - s) }
+  else if (t < .875) { const s = (t - .625) / .25; r = 255; g = 255 * (1 - s); b = 0 }
+  else { const s = (t - .875) / .125; r = 255 * (1 - s * .5); g = 0; b = 0 }
+  return new T.Color(r / 255, g / 255, b / 255);
+}
+```
+
+### 3.3 压力数据源
+
+| 模式 | 数据来源 | 触发 |
+|------|---------|------|
+| manual | `C[id].pressure` 用户输入 | propPressure.onchange |
+| simulated | `updateSimPressures()` 正弦波 | toggleSimulate() |
+| real | `_importedField` JSON导入 | importFieldJSON() |
+
+```js
+function getCellPressures(cells) {
+  if (FIELD_MODE === 'real') return _importedField;
+  const p = {};
+  cells.forEach(c => {
+    const v = parseFloat(c.pressure);
+    p[c.id] = Number.isFinite(v) ? v : 0;
+  });
+  return p;
+}
+```
+
+### 3.4 模拟压力 (per-Cell正弦波)
+
+```js
+function updateSimPressures() {
+  const cells = Object.values(C), now = Date.now() / 1000;
+  cells.forEach(c => {
+    const phase = (c.id + 1) * 0.73,
+          freq = 0.25 + (c.id % 7) * 0.12,
+          base = pressureMin + (pressureMax - pressureMin) * 0.2,
+          amp = (pressureMax - pressureMin) * 0.35;
+    c.pressure = base + amp * (0.5 + 0.5 * Math.sin(now * freq + phase));
+  });
+}
+```
+
+---
+
+## 4. 性能架构
+
+### 4.1 三层缓存
+
+```
+Layer 1 — _vpos (Float32Array)
+  缓存全部顶点在Cell空间的坐标（一次性，~18MB for 150万面）
+  消除每帧 matrix multiply
+
+Layer 2 — CSR Influence Cache
+  _ioff[N+1]  行偏移
+  _icell[M]   Cell ID
+  _iwgt[M]    Wendland 权重
+  消除每帧 空间分桶+Wendland计算
+  仅在 Cell位置/半径变化时重建
+
+Layer 3 — _cv (Uint32Array)
+  覆盖顶点索引列表
+  applyFieldColors 只遍历 _cv，不再全量遍历
+  150万面 → ~5-10万覆盖顶点 → 遍历量↓93%
+```
+
+### 4.2 两个核心函数
+
+| 函数 | 何时调用 | 耗时 (150万面) |
+|------|---------|---------------|
+| `rebuildFieldCache()` | Cell增删移动 / FIELD_R变化 | 2-5s (一次性) |
+| `applyFieldColors()` | 压力变化时(手动) / 500ms(模拟) | 10-50ms |
+
+### 4.3 空间分桶
+
+```js
+// 将Cell按FIELD_R网格分桶
+// 查询时只检查所在桶及26个相邻桶 (3×3×3)
+// O(V×N) → O(V×k), k = 每个桶内Cell数
+```
+
+### 4.4 缓存失效
+
+| 操作 | 动作 |
+|------|------|
+| Cell 增删移动 | `invalidateFieldCache()` — 清灰 + 重建CSR |
+| FIELD_R 变化 | `invalidateFieldCache()` — 重建CSR |
+| 压力值变化 | `_lastKey=null` — 仅触发着色 |
+| 模型更换 | `_vpos=null` + `invalidateFieldCache()` |
+
+---
+
+## 5. 参数
+
+| 参数 | 默认值 | 范围 | 说明 |
 |------|--------|------|------|
-| `FIELD_R` (影响半径) | 60 mm | 20-200 mm | ✅ 已实现 |
-| `pressureMin` | 0 | 用户定义 | ✅ 已实现 |
-| `pressureMax` | 100 | 用户定义 | ✅ 已实现 |
-| `coverageThreshold` | 0.01 | 内部固定 | ✅ 已实现 |
-| `post_gaussian_sigma` | 1.5 px | — | ❌ 未实现 (预留) |
-
-### 1.7 工作流
-
-```
-Cell Pressure Values
-      ↓
-getCellPressures()  (manual/simulated/real 三模式)
-      ↓
-[Cache OK?] ──No──→ rebuildFieldCache()  ⚡ 一次性 (cell/半径变化时)
-      │                 ├─ _vpos: 缓存150万顶点坐标 (~18MB)
-      │                 ├─ _cv: 收集覆盖顶点列表 (Uint32Array)
-      │                 └─ CSR: _ioff/_icell/_iwgt (影响关系+Wendland权重)
-      │
-      └──Yes──→ applyFieldColors()  ⚡ 每帧 (~10-50ms)
-                    ├─ 只遍历 _cv (覆盖顶点, ~5-10万)
-                    ├─ 读 CSR 预存权重 → 加权求和
-                    ├─ normalize → jetColor → lerp(grey, confidence)
-                    └─ col.setXYZ → needsUpdate → GPU
-```
+| FIELD_R | 60 mm | 20-200 | 影响半径，约Cell间距2倍 |
+| pressureMin | 0 | 用户定义 | 归一化下界(对应蓝色) |
+| pressureMax | 100 | 用户定义 | 归一化上界(对应红色) |
+| coverageThreshold | 0.01 | 内部固定 | 置信度低于此不显色 |
+| 距离度量 | Euclidean | — | 3D空间直线距离 |
 
 ---
 
-## 2. 选型过程 (仿真验证)
+## 6. 关键文件
 
-### 2.1 仿真框架
-
-```
-仿真/  (~1500行 Python)
-├── algorithms.py        # Wendland C2 / MLS / Graph Laplacian (276行)
-├── data_generator.py    # 5种测试场景生成器 (197行)
-├── compare.py           # 2D仿真入口 (151行)
-├── mesh_compare.py      # 3D OBJ模型仿真 (452行)
-├── metrics.py           # 8维定量指标 (67行)
-├── visualize.py         # matplotlib可视化 (173行)
-└── output/              # 36个结果文件
-```
-
-### 2.2 仿真实测结果
-
-| 场景 | 指标 | Wendland C2 | MLS | Graph Laplacian |
-|------|------|:-----------:|:---:|:---------------:|
-| uniform_gaussian (120 cells) | RMSE | 7.54 | **4.71** | 7.95 |
-| clustered_gaussian (100 cells) | RMSE | 44.41 | **19.32** | 24.29 |
-| uniform_saddle (100 cells) | RMSE | **4.26** | 5.66 | 4.82 |
-| **edge_sparse (58 cells)** | RMSE | **16.41** | 35.38 ❌ | 32.24 |
-| | **edge_decay** | **0.90** | 0.79 | 0.43 |
-| | local_peaks | **1** | **7 ❌假峰** | 1 |
-| sparse_15 (15 cells) | RMSE | 56.33 | 30.37 | **26.97** |
-| 3D OBJ 52K顶点 | Runtime | 20.3s | 6s | **0.6s (33x)** |
-| | 压力保界 | ✓ 98.78 | ❌ 108超界8% | ✓ 100.0 |
-
-### 2.3 结论
-
-```
-┌──────────────────────────────────────────────────────┐
-│  主方案: Wendland C2  ✅ (已集成)                      │
-│  • 边缘衰减率 0.90 (最优)                              │
-│  • 无假峰、压力严格保界                                 │
-│  • C2 光滑 → 视觉无伪影                                │
-├──────────────────────────────────────────────────────┤
-│  备选: Graph Laplacian  ○ (待后续版本降级)              │
-│  • Cell < 20 的极限稀疏场景 (RMSE 26.97 vs 56.33)      │
-│  • 3D Mesh 有拓扑时快 20-40x (0.6s vs 20.3s)          │
-├──────────────────────────────────────────────────────┤
-│  淘汰: MLS  ✗                                          │
-│  • 边缘稀疏产生 7 个假峰 (过拟合)                        │
-│  • 3D 模型压力超界 8%                                  │
-└──────────────────────────────────────────────────────┘
-```
-
----
-
-## 3. 生产优化架构 (beta4 实现)
-
-### 3.1 空间分桶 (Layer 0)
-
-暴力复杂度 $O(V \times N)$。将空间按 `FIELD_R` 网格分桶，每个顶点仅查询所在桶及 26 个相邻桶 → $O(V \times k)$。
-
-- 2D: 8-邻域 (3×3)
-- 3D: 26-邻域 (3×3×3)
-
-### 3.2 CSR Influence Cache (Layer 1)
-
-只在 Cell 位置/半径变化时重建：
-
-```
-_ioff[N+1]     Uint32Array   行偏移: 顶点 i 的影响从 _ioff[i] 开始
-_icell[M]      Uint32Array   Cell ID 列表
-_iwgt[M]       Float32Array  Wendland 权重列表
-
-遍历顶点 i:
-  for (j = _ioff[i]; j < _ioff[i+1]; j++) {
-    cellId = _icell[j];  weight = _iwgt[j];
-    pressure += cellPressures[cellId] * weight;
-  }
-```
-
-### 3.3 覆盖顶点遍历 (Layer 2)
-
-$$
-_cv (Uint32Array) — rebuildFieldCache 时收集所有有影响的顶点索引
-$$
-
-逐帧着色只遍历 `_cv`，不再遍历全部顶点。150万面模型覆盖顶点 ~5-10万，**遍历量减少 93-97%**。
-
-### 3.4 缓存失效策略
-
-| 操作 | 触发 | 代价 |
-|------|------|------|
-| Cell 增删移动 / FIELD_R 变化 | `invalidateFieldCache()` 全量清灰 + 重建 CSR | 一次性 2-5s |
-| 压力值变化 | `_lastKey=null` (仅触发着色) | 10-50ms |
-| 模型更换 | `_vpos=null` + 重建 | 一次性 |
-
----
-
-## 4. 淘汰方案记录
-
-### 4.1 MLS — 淘汰
-
-**原理**: 每个顶点在 KNN 邻域 Cell 上拟合局部多项式曲面。
-
-**淘汰原因**:
-1. 边缘稀疏场景产生 **7 个假峰**（真值仅 1 个）
-2. 3D 模型压力**超界 8%**（读取到 108，没有任何 Sensor 输出此值）
-3. 每个顶点需求解最小二乘 O(K³)，性能差
-4. 需要 KNN 搜索而非半径搜索，无法利用 Wendland 的紧支撑优势
-
-### 4.2 Graph Laplacian — 备选
-
-**原理**: Mesh 拓扑图上的 Dirichlet 边值问题，求解 Lx = b。
-
-**保留原因**:
-1. Cell < 20 极限稀疏场景 RMSE 最优 (26.97 vs Wendland 56.33)
-2. 3D Mesh 有拓扑时快 20-40x (0.6s vs 20.3s)
-3. 天然适配 Mesh 面片拓扑
-
-**待集成**: 后续版本中 Cell < 20 时自动降级到 Laplacian。
-
----
-
-## 5. 代码实现索引
-
-| 文件 | 行数 | 说明 |
-|------|------|------|
-| `src/3D编辑器原型.html` | ~950 | JS 生产实现 (Wendland引擎+CSR缓存+三模式+UI) |
-| `src/tests/test_force_field.py` | 335 | Python 等效算法 29 项测试 |
-| `仿真/algorithms.py` | 276 | 三种算法 Python 参考实现 |
-| `仿真/mesh_compare.py` | 452 | 3D OBJ 模型仿真程序 |
-| `仿真/3D压力场重建仿真对比报告.md` | 612 | 完整选型分析报告 |
-| `仿真/output/` | 36 文件 | 全部仿真输出 (PNG/CSV/JSON/NPY) |
+| 文件 | 说明 |
+|------|------|
+| `src/3D编辑器原型.html` | 完整实现 (~950行, Wendland引擎+CSR+UI) |
+| `src/tests/test_force_field.py` | 算法测试 29项 passed |
+| `仿真/algorithms.py` | Python参考实现 WendlandC2Reconstructor |
+| `仿真/output/all_metrics.csv` | 仿真定量结果 |
