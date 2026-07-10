@@ -231,6 +231,26 @@ def start_server(root_dir):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        # 日志: 同时输出到终端和 src/log/ 文件
+        import logging, datetime
+        log_dir = os.path.join(find_root(), "src", "log")
+        os.makedirs(log_dir, exist_ok=True)
+        log_file = os.path.join(log_dir, datetime.datetime.now().strftime("app_%Y%m%d_%H%M%S.log"))
+        self._log_fp = open(log_file, 'w', encoding='utf-8')
+        self._log_fp.write(f"=== 3D拟物Layout编辑器 v{VER} ===\n")
+        self._log_fp.write(f"启动: {datetime.datetime.now().isoformat()}\n")
+        self._log_fp.flush()
+        _orig_print = print
+        def _tee_print(*args, **kwargs):
+            _orig_print(*args, **kwargs)
+            try:
+                msg = ' '.join(str(a) for a in args)
+                if 'flush' in kwargs: del kwargs['flush']
+                self._log_fp.write(msg + '\n')
+                self._log_fp.flush()
+            except: pass
+        import builtins; builtins.print = _tee_print
+        print(f"[log] 日志文件: {log_file}")
         self.setWindowTitle(f"{APP} v{VER}")
         self.resize(1440, 900); self.setMinimumSize(1024, 700)
         self.setStyleSheet("QMainWindow{background:#1e1e1e}")
@@ -333,25 +353,29 @@ class MainWindow(QMainWindow):
         path = getattr(self, '_pending_save_path', None)
         if not path:
             return
+        # 使用JS端实际unitMM, 不再依赖初始化值
+        unit_mm = data.get("unit_mm") or self._project_info.get("unit_mm", 1.0)
+        self._project_info["unit_mm"] = unit_mm
         cells_json = []
         for c in cells:
+            center = c.get("center_mm") or c.get("center_3d") or {"x": 0, "y": 0, "z": 0}
             cells_json.append({
                 "id": c.get("id", 0),
-                "center_3d": c.get("center_3d", {"x": c.get("x",0), "y": c.get("y",0), "z": c.get("z",0)}),
-                "normal": c.get("normal", {"x": c.get("nx",0), "y": c.get("ny",0), "z": c.get("nz",1)}),
-                "radius_mm": c.get("radius_mm", c.get("radius", c.get("width_mm", 10.0)/2)),
-                "width_mm": c.get("width_mm", c.get("radius_mm", 10.0)*2),
-                "height_mm": c.get("height_mm", c.get("radius_mm", 10.0)*2),
+                "center_mm": {"x": center.get("x", 0), "y": center.get("y", 0), "z": center.get("z", 0)},
+                "normal": c.get("normal", {"x": 0, "y": 0, "z": 1}),
+                "radius_mm": c.get("radius_mm", 10.0),
                 "rotation_deg": c.get("rotation_deg", c.get("rot", 0.0)),
                 "label": c.get("label", ""),
                 "pressure": c.get("pressure", 0),
             })
         project = {
-            "version": "2.0",
+            "version": "2.1",
+            "schema_version": 1,
+            "coordinate_space": "model_local_mm",
             "project_name": self._project_info.get("name", ""),
             "created_at": self._project_info.get("created_at", datetime.now().isoformat()),
             "total_points": total or len(cells_json),
-            "unit_mm": self._project_info.get("unit_mm", 1.0),
+            "unit_mm": unit_mm,
             "surface_model": {
                 "format": getattr(self, '_model_format', 'stl'),
                 "file_name": getattr(self, '_model_name', 'model.stl'),
@@ -402,85 +426,134 @@ class MainWindow(QMainWindow):
         path = info["model_path"]
         fmt = Path(path).suffix.lstrip('.').lower()
         if fmt in ('stp', 'step'):
+            print(f"[stp] === STP转换开始: {path} ===", flush=True)
             self._sl.setText("正在转换STEP格式...")
             try:
                 import tempfile as _tmp
                 tmp_out = os.path.join(_tmp.gettempdir(), f"_stp_convert_{os.getpid()}.stl")
-
-                # 找到可用的 Python 解释器运行 stp_converter.py
-                # 优先 in-process（源模式），frozen exe 回退到 subprocess + conda Python
                 converter = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stp_converter.py")
                 if getattr(sys, 'frozen', False):
                     converter = os.path.join(find_root(), "src", "stp_converter.py")
-
+                print(f"[stp] converter={converter} exists={os.path.isfile(converter)}", flush=True)
                 if not os.path.isfile(converter):
                     raise FileNotFoundError(f"找不到转换器: {converter}")
+                print(f"[stp] input={path} tmp_out={tmp_out}", flush=True)
 
-                # 尝试 in-process import (源模式 / exe 已正确打包 OCC 时)
+                converted = False
+                # 尝试 in-process
                 try:
                     _conv_dir = os.path.dirname(converter)
                     if _conv_dir not in sys.path:
                         sys.path.insert(0, _conv_dir)
                     from stp_converter import convert_step_to_stl
+                    print(f"[stp] in-process convert started", flush=True)
                     convert_step_to_stl(path, tmp_out)
-                except ImportError:
-                    # In-process 失败 → 回退到 subprocess 调用 conda Python
+                    converted = True
+                    print(f"[stp] in-process convert done", flush=True)
+                except ImportError as e:
+                    print(f"[stp] in-process ImportError: {e}, trying subprocess", flush=True)
+                except Exception as e:
+                    print(f"[stp] in-process failed: {type(e).__name__}: {e}, trying subprocess fallback", flush=True)
+
+                if not converted:
                     python_exe = None
-                    # 1. 优先当前 conda 环境
                     conda_prefix = os.environ.get('CONDA_PREFIX', '')
                     if conda_prefix:
                         candidate = os.path.join(conda_prefix, 'python.exe')
-                        if os.path.isfile(candidate):
-                            python_exe = candidate
-                    # 2. 回退到已知 3d-editor 路径
+                        if os.path.isfile(candidate): python_exe = candidate
                     if not python_exe:
                         candidate = r'D:\Anaconda\envs\3d-editor\python.exe'
-                        if os.path.isfile(candidate):
-                            python_exe = candidate
-                    # 3. 回退到 base conda
+                        if os.path.isfile(candidate): python_exe = candidate
                     if not python_exe:
                         candidate = r'D:\Anaconda\python.exe'
-                        if os.path.isfile(candidate):
-                            python_exe = candidate
+                        if os.path.isfile(candidate): python_exe = candidate
                     if not python_exe:
-                        raise RuntimeError(
-                            "未找到可用的 Python 解释器。请安装 pythonocc-core:\n"
-                            "conda activate 3d-editor && pip install pythonocc-core"
-                        )
-                    result = subprocess.run(
-                        [python_exe, converter, path, tmp_out],
-                        capture_output=True, text=True, timeout=300
-                    )
+                        raise RuntimeError("未找到可用的 Python 解释器 (需 pythonocc-core)")
+                    print(f"[stp] subprocess python={python_exe}", flush=True)
+                    result = subprocess.run([python_exe, converter, path, tmp_out],
+                        capture_output=True, text=True, timeout=300)
+                    print(f"[stp] returncode={result.returncode}", flush=True)
+                    if result.stdout: print(f"[stp] stdout: {result.stdout[:500]}", flush=True)
+                    if result.stderr: print(f"[stp] stderr: {result.stderr[:500]}", flush=True)
                     if result.returncode != 0:
-                        raise RuntimeError(result.stderr.strip() or "转换失败")
+                        raise RuntimeError(f"转换失败 (rc={result.returncode}): {result.stderr.strip() or result.stdout.strip() or '?'}")
 
+                # 校验输出STL
+                print(f"[stp] tmp_out exists={os.path.isfile(tmp_out)} size={os.path.getsize(tmp_out) if os.path.isfile(tmp_out) else 0}", flush=True)
                 raw = Path(tmp_out).read_bytes()
                 try: os.unlink(tmp_out)
                 except: pass
                 if not raw or len(raw) < 84:
-                    raise RuntimeError("转换结果为空或无效STL")
+                    raise RuntimeError(f"转换结果为空或无效STL (size={len(raw)})")
+                face_count = int.from_bytes(raw[80:84], 'little')
+                print(f"[stp] output STL: {len(raw)} bytes, {face_count} faces", flush=True)
+                if face_count == 0:
+                    raise RuntimeError("转换结果STL面数为0")
                 fmt = 'stl'
+                print(f"[stp] === STP转换成功: {face_count} faces, 进入loadStl流程 ===", flush=True)
             except FileNotFoundError as e:
+                print(f"[stp] FATAL: {e}", flush=True)
                 QMessageBox.warning(self, "STEP转换失败", str(e))
                 return
             except Exception as e:
-                import traceback
-                traceback.print_exc()
-                QMessageBox.warning(self, "STEP转换失败",
-                    f"{type(e).__name__}: {str(e)[:500]}")
+                import traceback; traceback.print_exc()
+                print(f"[stp] FATAL: {type(e).__name__}: {e}", flush=True)
+                QMessageBox.warning(self, "STEP转换失败", f"{type(e).__name__}: {str(e)[:500]}")
                 return
         else:
             raw = Path(path).read_bytes()
+            print(f"[stp] === 非STP直接加载: {path} ===", flush=True)
         model_name = Path(path).stem + ".stl" if fmt == 'stl' and path.endswith(('.stp', '.step')) else Path(path).name
         self._model_name = model_name
         self._model_format = fmt
-        self._model_b64 = None  # 不再用base64传大数据，改用HTTP URL
+        self._model_b64 = None
         self._project_info = info
 
-        # 写入HTTP可访问的缓存目录，避免runJavaScript传超大base64导致崩溃
+        # L1: 大模型降采样 (trimesh decimation)
         cache_dir = os.path.join(find_root(), "src", "_model_cache")
         os.makedirs(cache_dir, exist_ok=True)
         cache_path = os.path.join(cache_dir, model_name)
+        decimated = False; original_faces = 0; actual_faces = 0
+        if fmt == 'stl' and len(raw) > 84:
+            original_faces = int.from_bytes(raw[80:84], 'little')
+            if original_faces > 200000:
+                self._sl.setText(f"正在优化大模型 ({original_faces}面)...")
+                before_bytes = len(raw)
+                target = 300000
+                reduction = 1.0 - (target / original_faces)
+                try:
+                    import trimesh
+                    mesh = trimesh.load(trimesh.util.wrap_as_stream(raw), file_type='stl')
+                    if mesh.faces.shape[0] > 200000 and 0 < reduction < 1:
+                        simplified = None; sim_ok = False
+                        try:
+                            simplified = mesh.simplify_quadric_decimation(reduction)
+                            sim_ok = simplified is not None and simplified.faces.shape[0] > 0
+                        except ImportError:
+                            print(f"[decimate] 缺少 fast_simplification 模块, 无法降采样", flush=True)
+                        except ValueError as ve:
+                            print(f"[decimate] 参数错误 (reduction={reduction:.4f}): {ve}", flush=True)
+                        except Exception as se:
+                            print(f"[decimate] 降采样异常: {type(se).__name__}: {se}", flush=True)
+                        if sim_ok:
+                            actual_faces = simplified.faces.shape[0]
+                            raw = simplified.export(file_type='stl')
+                            if raw and len(raw) > 84 and actual_faces < original_faces:
+                                decimated = True
+                                after_bytes = len(raw)
+                                msg = f"降采样成功: {original_faces}→{actual_faces}面 | {before_bytes}→{after_bytes}bytes"
+                            else:
+                                actual_faces = 0
+                                msg = f"降采样STL导出无效, 使用原模型 ({original_faces}面)"
+                        else:
+                            msg = f"降采样未执行: 使用原模型 ({original_faces}面)"
+                    else:
+                        msg = f"跳过降采样 (reduction={reduction:.4f})"
+                except Exception as e:
+                    msg = f"降采样失败: {type(e).__name__}, 使用原模型 ({original_faces}面)"
+                    print(f"[decimate] {msg}: {e}", flush=True)
+                self._sl.setText(msg)
+                print(f"[decimate] {msg}", flush=True)
         Path(cache_path).write_bytes(raw)
         self._model_cache_path = cache_path
 
@@ -490,11 +563,13 @@ class MainWindow(QMainWindow):
             "name": model_name,
             "format": fmt,
             "total_points": info["channels"],
+            "unit_mm": info.get("unit_mm", 1.0),
+            "decimated": decimated,
+            "original_faces": original_faces,
+            "actual_faces": actual_faces,
         })
         QTimer.singleShot(3000, lambda: setattr(self, '_loading', False))
         QTimer.singleShot(3500, lambda: setattr(self, '_dirty', False))
-        if info["unit_mm"] != 1.0:
-            self.bridge.cmd("setUnit", {"unit": info["unit_mm"]})
         self._current_file = None
         self._sl.setText(f"项目: {info['name']} | 模型: {model_name} | 通道: {info['channels']}")
 
@@ -533,6 +608,30 @@ class MainWindow(QMainWindow):
         self._model_name = model_name
         self._model_format = project_data.get("model_format") or Path(model_name).suffix.lstrip('.').lower()
         print(f"[open] resolved format={self._model_format}", flush=True)
+        # 打开工程也进行降采样
+        decimated = False; original_faces = 0; actual_faces = 0
+        if self._model_format == 'stl' and len(raw) > 84:
+            original_faces = int.from_bytes(raw[80:84], 'little')
+            if original_faces > 200000:
+                print(f"[open] 大模型 ({original_faces}面) 正在降采样...", flush=True)
+                try:
+                    import trimesh
+                    mesh = trimesh.load(trimesh.util.wrap_as_stream(raw), file_type='stl')
+                    if mesh.faces.shape[0] > 200000:
+                        target = 300000; reduction = 1.0 - (target / mesh.faces.shape[0])
+                        if 0 < reduction < 1:
+                            try:
+                                simplified = mesh.simplify_quadric_decimation(reduction)
+                                if simplified and simplified.faces.shape[0] > 0:
+                                    raw = simplified.export(file_type='stl')
+                                    if len(raw) > 84:
+                                        actual_faces = simplified.faces.shape[0]
+                                        decimated = True
+                                        print(f"[open] 降采样成功: {original_faces}→{actual_faces}面", flush=True)
+                            except Exception as se:
+                                print(f"[open] 降采样跳过: {se}", flush=True)
+                except Exception as e:
+                    print(f"[open] 降采样失败: {e}", flush=True)
         self._model_b64 = None
         self._project_info = {
             "name": project_data.get("project_name", ""),
@@ -542,11 +641,20 @@ class MainWindow(QMainWindow):
         }
         cells = project_data.get("cells", [])
         total = project_data.get("total_points", len(cells))
-        print(f"[open] cells={len(cells)} total_points={total}", flush=True)
+        # 保留原始字段, 不重写center_3d→center_mm
+        coord_space = project_data.get("coordinate_space") or ""
+        if not coord_space:
+            # 历史工程: center_3d实际存储的是u2mm毫米值, 不是model_local_unit
+            has_c3 = any("center_3d" in c for c in cells[:1]) if cells else False
+            coord_space = "model_local_mm_legacy" if has_c3 else ""
+        print(f"[open] cells={len(cells)} total_points={total} coord_space={coord_space} unit_mm={self._project_info['unit_mm']}", flush=True)
 
         cache_dir = os.path.join(find_root(), "src", "_model_cache")
         os.makedirs(cache_dir, exist_ok=True)
-        cache_path = os.path.join(cache_dir, model_name)
+        # Q25: UUID缓存名避免旧缓存污染
+        import uuid, time
+        cache_name = f"opened_{uuid.uuid4().hex[:8]}_{model_name}"
+        cache_path = os.path.join(cache_dir, cache_name)
         Path(cache_path).write_bytes(raw)
         self._model_cache_path = cache_path
         print(f"[open] cache_path={cache_path}", flush=True)
@@ -557,17 +665,21 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "文件错误", f"模型缓存写入不完整: {actual_size} vs {len(raw)}")
             return
 
-        url = f"/src/_model_cache/{quote(model_name)}"
+        url = f"/src/_model_cache/{quote(cache_name)}?v={int(time.time()*1000)}"
         print(f"[open] loadStl URL={url} format={self._model_format} cells={len(cells)}", flush=True)
         self.bridge.cmd("loadStl", {
             "url": url,
             "name": model_name,
             "cells": cells,
             "total_points": total,
-            "format": self._model_format
+            "format": self._model_format,
+            "unit_mm": self._project_info.get("unit_mm", 1.0),
+            "schema_version": project_data.get("schema_version", 0),
+            "coordinate_space": coord_space,
+            "decimated": decimated,
+            "original_faces": original_faces,
+            "actual_faces": actual_faces,
         })
-        if self._project_info.get("unit_mm", 1.0) != 1.0:
-            self.bridge.cmd("setUnit", {"unit": self._project_info["unit_mm"]})
         self._sl.setText(
             f"已打开: {Path(path).name} | "
             f"项目: {self._project_info.get('name','')} | "
@@ -653,7 +765,11 @@ class MainWindow(QMainWindow):
         return True
 
     def closeEvent(self, event):
-        if self._confirm_discard(): event.accept()
+        if self._confirm_discard():
+            if hasattr(self, '_log_fp'):
+                try: self._log_fp.close()
+                except: pass
+            event.accept()
         else: event.ignore()
 
 

@@ -108,6 +108,8 @@ body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:#1e1e1e;colo
 <div class="channel-table"><table><thead><tr><th>ID</th><th>落地</th><th>重叠</th><th>X</th><th>Y</th><th>Z</th><th>面积</th><th>半径</th></tr></thead><tbody id="channelBody"></tbody></table></div>
 <div class="statusbar"><span id="sModel">—</span><span>|</span><span>已落地:<b id="sLanded">0</b>/<b id="sTotal">200</b></span><span>|</span><span>重叠:<b id="sOverlap">0</b></span><span>|</span><span id="sLoad">加载中...</span><span>|</span><span id="sMouse">曲面:—</span><span>|</span><span id="sCtrl">Ctrl:—</span></div>
 <div class="status-msg" id="statusMsg"></div>
+<script>// Polyfill .at() for Chromium 83 (QWebEngine)
+!function(){function t(o,r){if(!o.at){var n=typeof o;Object.defineProperty(o,'at',{value:function(i){i=Math.trunc(i)||0;if(i<0)i+=this.length;return i<0||i>=this.length?r:this[i]},writable:!0,configurable:!0})}}t(Array.prototype);t(String.prototype);t(Int8Array.prototype,0);t(Uint8Array.prototype,0);t(Uint8ClampedArray.prototype,0);t(Int16Array.prototype,0);t(Uint16Array.prototype,0);t(Int32Array.prototype,0);t(Uint32Array.prototype,0);t(Float32Array.prototype,0);t(Float64Array.prototype,0)}();</script>
 <script type="module">
 import*as T from'./lib/three/build/three.module.js';import{OrbitControls}from'./lib/three/examples/jsm/controls/OrbitControls.js';
 import{STLLoader}from'./lib/three/examples/jsm/loaders/STLLoader.js';
@@ -142,7 +144,8 @@ try{
   CA=new T.PerspectiveCamera(45,2,.1,1e5);CA.position.set(100,-300,200);
   CT=new OrbitControls(CA,R.domElement);CT.enableDamping=!1;
   SC.add(new T.AmbientLight(0x566070,2.2));
-  SC.add(new T.DirectionalLight(0xffffff,2.6)).position.set(300,-400,500);
+  const dirLight=new T.DirectionalLight(0xffffff,2.6);dirLight.position.set(300,-400,500);SC.add(dirLight);
+  SC.position.set(0,0,0);SC.rotation.set(0,0,0);SC.scale.set(1,1,1);
   RT=new T.Group();SC.add(RT);
   RY=new T.Raycaster();
   CG=new T.Group();RT.add(CG);
@@ -177,7 +180,7 @@ function cellSurfaceArea(c){return A[c.id]||Math.PI*c.r*c.r}
 function closestPointOnModelWorld(worldPoint,centerWorld,centerNormal,maxJump){
   const tree=M&&M.geometry&&(M.geometry.boundsTree||M.geometry.bvh);if(!tree||!tree.closestPointToPoint)return null;
   const localPoint=M.worldToLocal(worldPoint.clone()),localClosest=new T.Vector3();
-  try{tree.closestPointToPoint(localPoint,localClosest,0,maxJump||Infinity);const p=M.localToWorld(localClosest.clone());if(centerWorld&&centerNormal){if(p.distanceTo(worldPoint)>maxJump)return null;if(new T.Vector3().subVectors(p,centerWorld).dot(centerNormal)<-maxJump*.25)return null}return p}catch(e){return null}
+  try{tree.closestPointToPoint(localPoint,localClosest,0,maxJump||Infinity);const p=M.localToWorld(localClosest.clone());if(p.distanceTo(worldPoint)>maxJump)return null;return p}catch(e){return null}
 }
 function buildSurfaceIndex(){if(!M)return;SURF=[];const triCount=M.geometry.index?M.geometry.index.count/3:M.geometry.attributes.position.count/3,stride=Math.max(1,Math.ceil(triCount/12000));const N=new T.Vector3(),A=new T.Vector3(),B=new T.Vector3(),C=new T.Vector3();for(let t=0,off=0;t<triCount;t++,off+=3){if(t%stride!==0)continue;let i0,i1,i2;if(M.geometry.index){i0=M.geometry.index.getX(off);i1=M.geometry.index.getX(off+1);i2=M.geometry.index.getX(off+2)}else{i0=off;i1=off+1;i2=off+2}A.fromBufferAttribute(M.geometry.attributes.position,i0).applyMatrix4(M.matrixWorld);B.fromBufferAttribute(M.geometry.attributes.position,i1).applyMatrix4(M.matrixWorld);C.fromBufferAttribute(M.geometry.attributes.position,i2).applyMatrix4(M.matrixWorld);N.subVectors(B,A).cross(new T.Vector3().subVectors(C,A)).normalize();const ctr=new T.Vector3().addVectors(A,B).add(C).divideScalar(3);SURF.push({a:A.clone(),b:B.clone(),c:C.clone(),center:ctr,normal:N.clone()})}}
 function projectToSurfaceLocal(wv,worldDir,cast){const ro=new T.Vector3();ro.copy(wv).addScaledVector(worldDir,cast);RY.set(ro,worldDir.clone().negate());let h=RY.intersectObject(M,!1);if(h.length)return wpToLocal(h[0].point);ro.copy(wv).addScaledVector(worldDir,-cast);RY.set(ro,worldDir);h=RY.intersectObject(M,!1);if(h.length)return wpToLocal(h[0].point);return null}
@@ -266,30 +269,36 @@ function BC(id){
   const ph=new T.Mesh(geo,mt);ph.userData={id,pch:!0};
   ph.position.copy(ps.clone().addScaledVector(nm,off));
   ph.quaternion.setFromUnitVectors(new T.Vector3(0,0,1),nm);ph.rotateZ(T.MathUtils.degToRad(c.rot||0));
+  const pa=geo.attributes.position; // Q40: 提升到函数作用域
+  if(!pa||pa.count!==1+rSegs*segments){console.warn('[BC] Cell #'+id+' position attr invalid');return null}
   if(M){
     ph.updateMatrix();
     const wM=new T.Matrix4().multiplyMatrices(RT.matrixWorld,ph.matrix),wI=new T.Matrix4().copy(wM).invert();
-    const pa=geo.attributes.position,cast=Math.max(ru*6,mm2u(12));
-    const wNm=normalToWorld(nm),ro=new T.Vector3(),lr=new T.Vector3();
     const centerW=localToWp(ps),maxJump=Math.max(ru*2.4,mm2u(18));
+    const tree=M.geometry&&M.geometry.boundsTree;
+    const lPt=new T.Vector3(),lClosest=new T.Vector3(),lr=new T.Vector3(),wn=normalToWorld(nm);
+    // Q37: 逐顶点BVH曲面投影 + 局部法线偏移
     for(let i=0;i<pa.count;i++){
       const wv=new T.Vector3(pa.getX(i),pa.getY(i),pa.getZ(i)).applyMatrix4(wM);
-      let best=null,bd=Infinity;
-      ro.copy(wv).addScaledVector(wNm,cast);RY.set(ro,wNm.clone().negate());const h1=RY.intersectObject(M,!1);
-      if(h1.length){for(const h of h1){const hn=faceNormalWorld(h);const d=h.point.distanceTo(wv);if(d<bd&&d<=maxJump&&hn.dot(wNm)>.15&&new T.Vector3().subVectors(h.point,centerW).dot(wNm)>-maxJump*.25){bd=d;best=h}}}
-      ro.copy(wv).addScaledVector(wNm,-cast);RY.set(ro,wNm);const h2=RY.intersectObject(M,!1);
-      if(h2.length){for(const h of h2){const hn=faceNormalWorld(h);const d=h.point.distanceTo(wv);if(d<bd&&d<=maxJump&&hn.dot(wNm)>.15&&new T.Vector3().subVectors(h.point,centerW).dot(wNm)>-maxJump*.25){bd=d;best=h}}}
-      if(best){const hn=faceNormalWorld(best);lr.copy(best.point.clone().addScaledVector(hn,off)).applyMatrix4(wI);pa.setXYZ(i,lr.x,lr.y,lr.z)}
-      else{const cp=closestPointOnModelWorld(wv,centerW,wNm,maxJump);if(cp){lr.copy(cp.clone().addScaledVector(wNm,off)).applyMatrix4(wI);pa.setXYZ(i,lr.x,lr.y,lr.z)}}
+      if(!tree||!tree.closestPointToPoint){const cp=closestPointOnModelWorld(wv,centerW,nm,maxJump);if(cp){lr.copy(cp.clone().addScaledVector(wn,off)).applyMatrix4(wI);pa.setXYZ(i,lr.x,lr.y,lr.z)}continue}
+      lPt.copy(M.worldToLocal(wv));
+      try{tree.closestPointToPoint(lPt,lClosest,0,maxJump)}catch(e){lClosest.set(0,0,0)}
+      if(lClosest.lengthSq()<1e-12)continue;
+      const pWorld=M.localToWorld(lClosest.clone());
+      if(pWorld.distanceTo(wv)>maxJump)continue;
+      lr.copy(pWorld.clone().addScaledVector(wn,off)).applyMatrix4(wI);
+      pa.setXYZ(i,lr.x,lr.y,lr.z);
     }
     geo.computeVertexNormals();pa.needsUpdate=!0;
   }
   const g=new T.Group();g.add(ph);
-  // Circle perimeter edge line
+  // Q37: 外轮廓从变形后的顶点读取 (最外圈: ring=rSegs)
   const periPts=[];const perimSegs=72;
+  const outerBase=1+(rSegs-1)*segments; // 最外圈顶点起始索引
   for(let i=0;i<=perimSegs;i++){
-    const ang=(i/perimSegs)*Math.PI*2;
-    const ep=new T.Vector3(Math.cos(ang)*ru,Math.sin(ang)*ru,0).applyMatrix4(ph.matrix);
+    const s=(i%perimSegs)*(segments/perimSegs);
+    const vi=outerBase+Math.floor(s);
+    const ep=new T.Vector3(pa.getX(vi),pa.getY(vi),pa.getZ(vi)).applyMatrix4(ph.matrix);
     periPts.push(ep);
   }
   const ed=new T.Line(new T.BufferGeometry().setFromPoints(periPts),new T.LineBasicMaterial({color:bc,transparent:!0,opacity:bo}));g.add(ed);
@@ -304,8 +313,10 @@ function removeCellMesh(id){if(G[id]){CG.remove(G[id]);O=O.filter(g=>g!==G[id]);
 function RB(){O.forEach(g=>CG.remove(g));O=[];G={};A={};Object.keys(C).forEach(id=>{const g=BC(+id);if(g){G[id]=g;CG.add(g);O.push(g)}});HL();updateOverlapUI()}
 function HL(){
   O.forEach(g=>{const id=g.userData.id,isF=id===F,ov=V[id]||1,io=ov>1;
-    g.children.forEach(ch=>{if(ch.userData&&ch.userData.pch){if(isF){ch.material.opacity=.88;ch.material.color.set(0xffffff)}else if(io){const sv=Math.min(1,(ov-1)/4);ch.material.opacity=.75+sv*.2;ch.material.color.set(new T.Color(1,.35*(1-sv),.1*(1-sv)))}else{ch.material.opacity=.58;ch.material.color.set(0x4ec9b0)}}});
-    const b=g.children[1];if(b){b.material.color.set(isF?0xffffff:(io?0xff4444:0xffffff));b.material.opacity=isF?.95:(io?.85:.45)}
+    g.children.forEach(ch=>{if(ch.userData&&ch.userData.pch){if(isF){ch.material.opacity=.88;ch.material.color.set(0xffffff)}else if(io){const sv=Math.min(1,(ov-1)/4);ch.material.opacity=.75+sv*.2;ch.material.color.set(new T.Color(1,.35*(1-sv),.1*(1-sv)))}else{ch.material.opacity=.58;ch.material.color.set(0x4ec9b0)}}
+      if(ch.userData&&ch.userData.center){ch.material.opacity=.95;ch.material.color.set(io?0xff4444:0x4ec9b0)}
+    });
+    const b=g.children[1];if(b&&b.isLine){b.material.color.set(isF?0xffffff:(io?0xff4444:0xffffff));b.material.opacity=isF?.95:(io?.85:.45)}
   })
 }
 function CO(){
@@ -510,6 +521,23 @@ else if(t<.875){const s=(t-.625)/.25;r=255;g=255*(1-s);b=0}
 else{const s=(t-.875)/.125;r=255*(1-s*.5);g=0;b=0}
 return new T.Color(r/255,g/255,b/255)}
 
+// 柔和热力色: 蓝→青→绿→橙→红, 低值不产生深色
+function softHeatColor(t){
+  t=Math.max(0,Math.min(1,t));
+  const stops=[
+    [0.00,new T.Color(0x2b83ba)],[0.25,new T.Color(0x48b8c4)],
+    [0.50,new T.Color(0xa6d96a)],[0.72,new T.Color(0xfdae61)],
+    [1.00,new T.Color(0xd7191c)]
+  ];
+  for(let i=1;i<stops.length;i++){
+    if(t<=stops[i][0]){
+      const a=stops[i-1],b=stops[i],u=(t-a[0])/(b[0]-a[0]);
+      return a[1].clone().lerp(b[1],u);
+    }
+  }
+  return stops[stops.length-1][1].clone();
+}
+
 function getCellPressures(cells){
   const p={};cells.forEach(c=>{const v=parseFloat(c.pressure);p[c.id]=Number.isFinite(v)?v:0});return p;
 }
@@ -595,21 +623,115 @@ function rebuildFieldCache(cells,fieldRadiusU){
   let off=0;
   for(let i=0;i<n;i++){const cnt=_ioff[i];_ioff[i]=off;const lx=_vpos[i*3],ly=_vpos[i*3+1],lz=_vpos[i*3+2],nb=queryBucketCells(lx,ly,lz);for(const c of nb){cellP.set(c.x,c.y,c.z);const dx=lx-c.x,dy=ly-c.y,dz=lz-c.z,d=Math.sqrt(dx*dx+dy*dy+dz*dz);if(d>fieldRadiusU)continue;const r=d/fieldRadiusU,w=wendlandPhi(r);if(w>1e-8){_icell[off]=c.id;_iwgt[off]=w;off++}}}
   _cacheOk=!0;_cacheFR=FIELD_R;col.needsUpdate=!0;
-  console.log('[perf] cache built',(performance.now()-tt).toFixed(0)+'ms',n+' verts',total+' edges',_cv.length+' covered');
-  console.log('[perf] cache total',(performance.now()-t0).toFixed(0)+'ms');
+  // 构建顶点邻接表(一次, 用于平滑)
+  if(!_adj||_adj.length!==n){_adj=buildVertexAdjacency(geo,n)}
+  // 力场调试信息
+  let cellMinX=Infinity,cellMinY=Infinity,cellMinZ=Infinity,cellMaxX=-Infinity,cellMaxY=-Infinity,cellMaxZ=-Infinity;
+  cells.forEach(c=>{cellMinX=Math.min(cellMinX,c.x);cellMaxX=Math.max(cellMaxX,c.x);cellMinY=Math.min(cellMinY,c.y);cellMaxY=Math.max(cellMaxY,c.y);cellMinZ=Math.min(cellMinZ,c.z);cellMaxZ=Math.max(cellMaxZ,c.z)});
+  console.log('[perf] cache built '+JSON.stringify({unitMM,FIELD_R,fieldRadiusU:fieldRadiusU.toFixed(2),vertices:n,cellCount:cells.length,cvLen:_cv.length,cellRange:{x:[u2mm(cellMinX).toFixed(1),u2mm(cellMaxX).toFixed(1)],y:[u2mm(cellMinY).toFixed(1),u2mm(cellMaxY).toFixed(1)],z:[u2mm(cellMinZ).toFixed(1),u2mm(cellMaxZ).toFixed(1)]},adjEdges:_adj?_adj[0]:0,timeMs:(performance.now()-tt).toFixed(0)}));
+  if(_cv.length===0){msg('Cell与模型顶点不存在有效覆盖，请检查单位比例或Cell坐标','e');console.warn('[field] _cv is empty! unitMM='+unitMM+' FIELD_R='+FIELD_R+' cells='+cells.length+' verts='+n)}
 }
 
-// ── 快速着色 (只遍历覆盖顶点，不清除未覆盖区域) ──
+// ── 顶点邻接表 (从geometry三角面构建, 只执行一次) ──
+let _adj=null; // [_adjOff (Uint32Array, n+1), _adjNbr (Uint32Array)]
+function buildVertexAdjacency(geo,n){
+  const t0=performance.now();const off=new Uint32Array(n+1),tmp=[];for(let i=0;i<n;i++)tmp.push([]);
+  const idx=geo.index;if(idx){for(let t=0;t<idx.count;t+=3){const a=idx.getX(t),b=idx.getX(t+1),c=idx.getX(t+2);if(a<n&&b<n&&c<n){tmp[a].push(b,c);tmp[b].push(a,c);tmp[c].push(a,b)}}}
+  else{for(let t=0;t<n;t+=3){const a=t,b=t+1,c=t+2;if(a<n&&b<n&&c<n){tmp[a].push(b,c);tmp[b].push(a,c);tmp[c].push(a,b)}}}
+  let total=0;for(let i=0;i<n;i++){const dedup=[...new Set(tmp[i])];tmp[i]=dedup;off[i]=total;total+=dedup.length}
+  off[n]=total;const nbr=new Uint32Array(Math.max(total,1));let p=0;
+  for(let i=0;i<n;i++){for(const nb of tmp[i])nbr[p++]=nb}
+  console.log('[adj] built',(performance.now()-t0).toFixed(0)+'ms',n+' verts',total+' edges');
+  return [off,nbr];
+}
+
+// ── 虚拟锚点 (不创建Mesh, 只参与标量场计算) ──
+function getVirtualAnchors(cells,cellPressures){
+  const anchors=[];
+  cells.forEach(c=>{
+    const p=cellPressures[c.id]||0;if(p<=0)return;
+    anchors.push({x:c.x,y:c.y,z:c.z,p,w:1.5}); // 中心锚点, 高权重
+    const r_cell=mm2u(c.r),n_ring=8;
+    for(let i=0;i<n_ring;i++){
+      const ang=2*Math.PI*i/n_ring;
+      const dx=Math.cos(ang)*r_cell,dy=Math.sin(ang)*r_cell;
+      anchors.push({x:c.x+dx,y:c.y+dy,z:c.z,p:p*0.8,w:0.8}); // 外圈
+    }
+    for(let i=0;i<4;i++){
+      const ang=2*Math.PI*i/4;
+      const dx=Math.cos(ang)*r_cell*0.5,dy=Math.sin(ang)*r_cell*0.5;
+      anchors.push({x:c.x+dx,y:c.y+dy,z:c.z,p:p*0.45,w:0.5}); // 中间环
+    }
+  });
+  return anchors;
+}
+
+// ── smoothstep ──
+function smoothstep(edge0,edge1,x){const t=Math.max(0,Math.min(1,(x-edge0)/(edge1-edge0||1e-9)));return t*t*(3-2*t)}
+
+// ── 边缘感知平滑 (邻接表+法线加权, 1-3次迭代) ──
+function smoothScalars(scalars,n,iterations){
+  const geon=M.geometry,pos=geon.attributes.position;
+  if(!pos)return;
+  for(let iter=0;iter<iterations;iter++){
+    const src=new Float32Array(scalars);
+    for(let i=0;i<n;i++){
+      const s=_adj[0][i],e=_adj[0][i+1];if(s===e)continue;
+      let wSum=0,sum=0;
+      const ix=i*3,iy=i*3+1,iz=i*3+2;
+      const vx=pos.getX(i),vy=pos.getY(i),vz=pos.getZ(i);
+      for(let j=s;j<e;j++){
+        const nb=_adj[1][j];const nx=pos.getX(nb),ny=pos.getY(nb),nz=pos.getZ(nb);
+        const dx=vx-nx,dy=vy-ny,dz=vz-nz;const distSq=dx*dx+dy*dy+dz*dz;
+        if(distSq<1e-12)continue;
+        // 法线差异加权: 尖角/折边权重低, 防串色
+        let nWeight=1;
+        if(geon.attributes.normal){
+          const nix=geon.attributes.normal.getX(i)*3,niy=geon.attributes.normal.getY(i)*3,niz=geon.attributes.normal.getZ(i)*3;
+          const nnx=geon.attributes.normal.getX(nb)*3,nny=geon.attributes.normal.getY(nb)*3,nnz=geon.attributes.normal.getZ(nb)*3;
+          const dot=nix*nnx+niy*nny+niz*nnz;nWeight=Math.max(0,dot);
+        }
+        const w=nWeight/Math.max(distSq,1e-9);wSum+=w;sum+=src[nb]*w;
+      }
+      if(wSum>0)scalars[i]=src[i]*0.7+(sum/wSum)*0.3;
+    }
+  }
+}
+
+// ── 快速着色 (f1d0a79 + 方案A: 邻接平滑3次) ──
 function applyFieldColors(cellPressures){
-  const t0=performance.now(),geo=M.geometry,col=geo.attributes.color,th=0.01;let cov=0;
+  const t0=performance.now(),geo=M.geometry,col=geo.attributes.color,pos=geo.attributes.position,n=pos.count;
+  if(!geo.attributes.color)geo.setAttribute('color',new T.BufferAttribute(new Float32Array(n*3),3));
+  // Step1: Wendland标量场
+  const scalars=new Float32Array(n);
   const ncv=_cv.length;
-  for(let k=0;k<ncv;k++){const i=_cv[k],s=_ioff[i],e=_ioff[i+1];let num=0,den=0;
+  for(let k=0;k<ncv;k++){const i=_cv[k],s=_ioff[i],e=_ioff[i+1];if(s===e)continue;let num=0,den=0;
     for(let j=s;j<e;j++){const p=cellPressures[_icell[j]]||0,w=_iwgt[j];num+=p*w;den+=w}
-    if(den<=1e-6)continue;
-    const pr=num/den,cf=Math.min(1,den);if(cf<=th)continue;
-    cov++;const t=Math.max(0,Math.min(1,pr)),jc=jetColor(t),fc=MODEL_GREY.clone().lerp(jc,cf);col.setXYZ(i,fc.r,fc.g,fc.b)}
+    if(den>1e-6)scalars[i]=num/den}
+  // Step2: 邻接平滑 (方案A: 3次, 低面模型核心优化)
+  if(_adj&&_adj[0]&&_adj[0].length===n+1)smoothScalars(scalars,n,3);
+  // Step3: jetColor + 置信度混合
+  const th=0.01;let cov=0;
+  for(let k=0;k<ncv;k++){const i=_cv[k];const pr=scalars[i];if(pr<=0)continue;let cf=0;
+    for(let j=_ioff[i];j<_ioff[i+1];j++)cf+=_iwgt[j];cf=Math.min(1,cf);
+    if(cf<=th){col.setXYZ(i,MODEL_GREY.r,MODEL_GREY.g,MODEL_GREY.b);continue}
+    cov++;const jc=jetColor(Math.max(0,Math.min(1,pr)));col.setXYZ(i,
+      MODEL_GREY.r+(jc.r-MODEL_GREY.r)*cf,MODEL_GREY.g+(jc.g-MODEL_GREY.g)*cf,MODEL_GREY.b+(jc.b-MODEL_GREY.b)*cf)}
   col.needsUpdate=!0;M.material.vertexColors=!0;
   return performance.now()-t0;
+}
+
+// ── 预览时Cell: 隐藏圆盘, 保留中心点和标签 ──
+function updateCellPreviewStyle(cellPressures){
+  O.forEach(g=>{
+    const id=g.userData.id,cp=Math.max(0,Math.min(1,cellPressures[id]||0));
+    g.children.forEach(ch=>{
+      if(ch.userData&&ch.userData.pch){ch.visible=!PREVIEW;if(!PREVIEW){ch.material.opacity=.72;ch.material.color.set(0x4ec9b0)}}
+      if(ch.userData&&ch.userData.center){ch.visible=!0;ch.material.opacity=PREVIEW?.82:.95;ch.material.color.set(PREVIEW?softHeatColor(cp):(V[id]>1?0xff4444:0x4ec9b0))}
+      if(ch.userData&&ch.userData.isLabel){ch.visible=PREVIEW}
+    });
+    const ed=g.children.find(ch=>ch.isLine);if(ed){ed.visible=!PREVIEW;if(!PREVIEW)ed.material.opacity=.55}
+  });
 }
 
 // ── 主入口 ──
@@ -656,7 +778,7 @@ function togglePreview(){
     O.forEach(g=>g.children.forEach(ch=>{if(ch.userData&&ch.userData.isLabel){ch.visible=!1}}));
     if(M&&M.material){M.material.vertexColors=!1;M.material.emissive=new T.Color(0);M.material.emissiveIntensity=0;
       if(_origMaterial){M.material.color.set(_origMaterial.color);M.material.opacity=_origMaterial.opacity;_origMaterial=null}}
-    msg('退出力场预览')}
+    updateCellPreviewStyle({});HL();msg('退出力场预览')}
 }
 
 // ── 模拟压力开关 ──
@@ -713,6 +835,22 @@ function refreshTable(){
 }
 
 function sz(){if(!R||!CA)return;const w=vp.clientWidth,h=vp.clientHeight;R.setSize(w,h,!1);CA.aspect=w/Math.max(h,1);CA.updateProjectionMatrix()}
+// Q30: 统一相机适配 (真实FOV计算)
+function fitCameraToModel(obj){
+  if(!obj||!CT||!CA)return;
+  const b=new T.Box3().setFromObject(obj),sz=b.getSize(new T.Vector3());
+  const radius=Math.sqrt(sz.x*sz.x+sz.y*sz.y+sz.z*sz.z)/2;
+  const center=b.getCenter(new T.Vector3());
+  const fovRad=CA.fov*Math.PI/360;
+  const dist=radius/Math.sin(fovRad)*1.3;
+  CT.target.copy(center);
+  CA.position.set(center.x+dist*0.7,center.y-dist*0.4,center.z+dist*0.7);
+  CA.near=Math.max(radius/1000,0.01);
+  CA.far=Math.max(radius*100,dist*15);
+  CA.updateProjectionMatrix();
+  CT.update();
+  _needsRender=!0;
+}
 let _resizeTimer=null;window.addEventListener('resize',()=>{clearTimeout(_resizeTimer);_resizeTimer=setTimeout(sz,100)});sz();
 
 // 按需渲染：只在操作时或预览时渲染，消除空闲抖动
@@ -739,7 +877,15 @@ refreshBasket=function(){_origRB();setTimeout(_notify,30)};
 refreshProps=function(){_origRP();setTimeout(_notify,30)};
 refreshTable=function(){_origRT();setTimeout(_notify,30)};
 // Python calls: window.pyCommand('cmd', {...}) → does action then notifies
+let _sessionId=0;
+function stopAllLoops(){
+  SIMULATE_ON=!1;PREVIEW=!1;
+  clearInterval(HEAT_INTERVAL);HEAT_INTERVAL=null;clearInterval(SIM_INTERVAL);SIM_INTERVAL=null;
+  D('tbPreview3D').classList.remove('active');D('tbSimulate').classList.remove('active');
+  D('fieldSettings').style.display='none';D('presetRow').style.display='none';
+}
 window.pyCommand=function(cmd,data){
+  if(!window.pyCommand._init){window.pyCommand._init=!0;console.log('[bridge] pyCommand registered');sendBridge('ready',{max:MAX,radius:radius,unit:unitMM})}
   try{
     if(cmd==='undo'){if(UNDO.length){REDO.push(JSON.stringify({MAX,radius,C,F,unitMM}));restoreState(UNDO.pop());_notify()}}
     else if(cmd==='redo'){if(REDO.length){UNDO.push(JSON.stringify({MAX,radius,C,F,unitMM}));restoreState(REDO.pop());_notify()}}
@@ -755,29 +901,40 @@ window.pyCommand=function(cmd,data){
     else if(cmd==='deleteCell'&&F>=0){snapShot();delete C[F];removeCellMesh(F);F=-1;invalidateFieldCache();updateHeatmap._lastKey=null;CO();HL();refreshBasket();refreshTable();refreshProps();_notify()}
     else if(cmd==='focusCell'&&data.id>=0&&C[data.id]){F=data.id;const c=C[F];if(!CT||!CA)return;const p=localToWp(new T.Vector3(c.x,c.y,c.z));CT.target.copy(p);CA.position.set(p.x,p.y-80,p.z+50);HL();_notify()}
     else if(cmd==='getAllCells'){const all=[];for(let i=0;i<MAX;i++){const c=C[i];all.push(c?{id:i,x:u2mm(c.x).toFixed(1),y:u2mm(c.y).toFixed(1),z:u2mm(c.z).toFixed(1),radius:c.r.toFixed(1),area:cellSurfaceArea(c).toFixed(1),overlap:V[i]||0}:null)}sendBridge('allCells',all)}
-    else if(cmd==='exportCells'){const cells=[];for(const c of Object.values(C))cells.push({id:c.id,center_3d:{x:+u2mm(c.x).toFixed(4),y:+u2mm(c.y).toFixed(4),z:+u2mm(c.z).toFixed(4)},normal:{x:+c.nx.toFixed(4),y:+c.ny.toFixed(4),z:+c.nz.toFixed(4)},radius_mm:c.r,width_mm:c.r*2,height_mm:c.r*2,rotation_deg:c.rot||0,label:c.label||'',pressure:c.pressure||0});sendBridge('exportCells',{cells:cells,total_points:MAX})}
-    else if(cmd==='importCells'&&Array.isArray(data)){snapShot();C={};data.forEach(c=>{if(c.id>=0&&c.id<MAX)C[c.id]={x:mm2u(c.x||c.center_3d?.x||0),y:mm2u(c.y||c.center_3d?.y||0),z:mm2u(c.z||c.center_3d?.z||0),nx:c.nx||c.normal?.x||0,ny:c.ny||c.normal?.y||0,nz:c.nz||c.normal?.z||1,r:c.radius_mm||c.radius||(c.width_mm||c.side||radius)/2,rot:c.rot||c.rotation_deg||0,id:c.id,label:c.label||'',pressure:parseFloat(c.pressure)||0}});F=-1;invalidateFieldCache();updateHeatmap._lastKey=null;CO();RB();refreshBasket();refreshTable();refreshProps();_notify()}
+    else if(cmd==='exportCells'){const cells=[];for(const c of Object.values(C))cells.push({id:c.id,center_mm:{x:+u2mm(c.x).toFixed(4),y:+u2mm(c.y).toFixed(4),z:+u2mm(c.z).toFixed(4)},normal:{x:+c.nx.toFixed(4),y:+c.ny.toFixed(4),z:+c.nz.toFixed(4)},radius_mm:c.r,rotation_deg:c.rot||0,label:c.label||'',pressure:c.pressure||0});sendBridge('exportCells',{cells:cells,total_points:MAX,unit_mm:unitMM})}
+    else if(cmd==='importCells'&&Array.isArray(data)){snapShot();C={};data.forEach(c=>{if(c.id>=0&&c.id<MAX)C[c.id]={x:mm2u((c.center_mm||c.center_3d||{x:c.x||0}).x),y:mm2u((c.center_mm||c.center_3d||{y:c.y||0}).y),z:mm2u((c.center_mm||c.center_3d||{z:c.z||0}).z),nx:c.nx||c.normal?.x||0,ny:c.ny||c.normal?.y||0,nz:c.nz||c.normal?.z||1,r:c.radius_mm||c.radius||(c.width_mm||radius)/2,rot:c.rot||c.rotation_deg||0,id:c.id,label:c.label||'',pressure:parseFloat(c.pressure)||0}});F=-1;invalidateFieldCache();updateHeatmap._lastKey=null;CO();RB();refreshBasket();refreshTable();refreshProps();_notify()}
     else if(cmd==='loadStl'&&(data.url||data.b64)){
-      // 轻量清理: 停止预览/模拟 + 清除旧模型和缓存 (保留unitMM/radius/MAX)
-      PREVIEW=!1;SIMULATE_ON=!1;
-      clearInterval(HEAT_INTERVAL);HEAT_INTERVAL=null;clearInterval(SIM_INTERVAL);SIM_INTERVAL=null;
-      D('tbPreview3D').classList.remove('active');D('tbSimulate').classList.remove('active');
+      // Item2: 停止所有模拟循环 + 递增project sessionId
+      stopAllLoops();_sessionId++;const thisSession=_sessionId;
+      // Item3: 资源清理
       D('fieldSettings').style.display='none';D('presetRow').style.display='none';
       if(M){if(M.geometry)M.geometry.dispose();RT.remove(M);M=null}
-      O.forEach(g=>CG.remove(g));O=[];G={};A={};SURF=null;
-      _vpos=null;_ioff=null;_icell=null;_iwgt=null;_cv=null;_cacheOk=!1;_origMaterial=null;
-      updateHeatmap._lastKey=null;_pulseHotspots=null;
-      FIELD_MODE='manual';SIM_PRESET='wave';D('fieldModeSelect').value='manual';D('simPresetSelect').value='wave';
-      FIELD_R=60;D('fieldRadiusSlider').value=60;D('fieldRadiusLabel').textContent='60mm';
-      console.log('[loadStl] received',{url:data.url?data.url.substring(0,50):'base64',format:data.format,cells:data.cells?data.cells.length:0});
+      if(W){RT.remove(W);W.geometry&&W.geometry.dispose();W=null}
+      O.forEach(g=>CG.remove(g));O=[];G={};A={};SURF=null;C={};F=-1;V={};
+      SC.position.set(0,0,0);SC.rotation.set(0,0,0);SC.scale.set(1,1,1);
+      RT.position.set(0,0,0);RT.rotation.set(0,0,0);RT.scale.set(1,1,1);
+      _vpos=null;_ioff=null;_icell=null;_iwgt=null;_cv=null;_cacheOk=!1;_origMaterial=null;_adj=null;
+      updateHeatmap._lastKey=null;_pulseHotspots=null;UNDO=[];REDO=[];
+      // Q26: 显式unit_mm标记
+      const hasExplicitUnit=Number.isFinite(data.unit_mm)&&data.unit_mm>0;
+      unitMM=data.unit_mm||1;radius=10;MAX=data.total_points||200;
+      FIELD_MODE='manual';FIELD_R=60;SIM_PRESET='wave';
+      D('propUnit').value=unitMM;D('topUnit').textContent=unitMM+' mm/单位';D('bsTotal').value=MAX;
+      D('fieldModeSelect').value='manual';D('simPresetSelect').value='wave';
+      D('fieldRadiusSlider').value=60;D('fieldRadiusLabel').textContent='60mm';
+      // Q28: 立即刷新防止旧Cell残留 + 加载中状态
+      updateTotals();refreshBasket();refreshTable();refreshProps();
+      msg('正在加载模型...');
+      console.log('[loadStl] received '+JSON.stringify({url:data.url?data.url.substring(0,60):'base64',format:data.format,unit_mm:unitMM,hasExplicitUnit,cells:data.cells?data.cells.length:0}));
       if(!RT){msg('WebGL不可用，无法加载模型','e');return}
       const fmt=(data.format||'stl').toLowerCase();
       const setupModel=(geo,name)=>{
-        if(!geo){msg('模型加载失败: 无法解析几何体','e');return}
+        if(!geo){sendBridge('error',{msg:'模型解析失败: 几何体为空'});msg('模型加载失败','e');return}
         geo.computeVertexNormals();
-        // 模型面数显示 + 超大模型提示 (降采样接口预留, SimplifyModifier对大模型过慢暂不启用)
+        // Q36: 根据Python端真实降采样结果显示
         const origFaces=geo.index?geo.index.count/3:geo.attributes.position.count/3;
-        if(origFaces>500000){D('optRow').style.display='flex';D('propOpt').value=origFaces+'面 (大模型, 力场预览性能优化已启用)';msg('大模型: '+origFaces+'面, 性能优化已启用')}
+        if(data.decimated){D('optRow').style.display='flex';D('propOpt').value=data.original_faces+'→'+data.actual_faces+'面 (已优化)';msg('降采样: '+data.original_faces+'→'+data.actual_faces+'面')}
+        else if(data.original_faces>200000){D('optRow').style.display='flex';D('propOpt').value=data.original_faces+'面 (降采样未生效)';msg('模型: '+data.original_faces+'面 (未降采样)')}
         else{D('optRow').style.display='none'}
         SL('构建BVH...');let useAccel=!0;try{geo.computeBoundsTree()}catch(e){console.warn('BVH构建失败,使用默认raycast:',e);useAccel=!1}
         const n=geo.index?geo.index.count/3:geo.attributes.position.count/3;
@@ -787,31 +944,89 @@ window.pyCommand=function(cmd,data){
         M=new T.Mesh(geo,mt);M.raycast=useAccel?acceleratedRaycast:T.Mesh.prototype.raycast;RT.add(M);
         C={};F=-1;_vpos=null;invalidateFieldCache();
         O.forEach(g=>CG.remove(g));O=[];G={};A={};
-        const b=new T.Box3().setFromObject(M),sz=b.getSize(new T.Vector3()),ctr=b.getCenter(new T.Vector3());
-        RT.position.set(-ctr.x,-ctr.y,-ctr.z);M.updateMatrixWorld();S=Math.max(sz.x,sz.y,sz.z);
+        // Q29: RT已重置为原点, 用local bbox计算居中偏移
+        M.updateMatrixWorld(!0);RT.updateMatrixWorld(!0);
+        geo.computeBoundingBox();const lb=geo.boundingBox,sz=lb.getSize(new T.Vector3()),ctr=lb.getCenter(new T.Vector3());
+        RT.position.set(-ctr.x,-ctr.y,-ctr.z);M.updateMatrixWorld(!0);RT.updateMatrixWorld(!0);
+        S=Math.max(sz.x,sz.y,sz.z);
         SL('计算曲面面积...');buildSurfaceIndex();
-        autoDetectUnit();updateBoxInfo();setDefaultsFromModel();
+        // Q26: 显式unit_mm则跳过自动检测
+        if(hasExplicitUnit){setDefaultsFromModel()}else{autoDetectUnit();updateBoxInfo();setDefaultsFromModel()}
         const surfaceAreaMM2=meshArea(M);
         const recommendedChannels=Math.max(10,Math.min(999999,Math.round(surfaceAreaMM2/400)));
         const prevMAX=MAX;
         MAX=data.total_points||recommendedChannels;
         msg('建议通道数: '+MAX+' (曲面面积 '+surfaceAreaMM2.toFixed(0)+'mm²)'+(prevMAX>0&&prevMAX!==MAX?' [原:'+prevMAX+'→新:'+MAX+']':''));
+        // 阶段④ 恢复Cell
         if(data.cells&&Array.isArray(data.cells)){
           SL('加载'+data.cells.length+'个Cell...');
+          let restored=0,failed=0;
+          const coordSpace=data.coordinate_space||'';
+          const isNewMM=coordSpace==='model_local_mm';
+          const isLegacy=coordSpace==='model_local_mm_legacy'||(!isNewMM&&data.cells.some(c=>c.center_3d));
+          const isRawUnit=coordSpace==='model_local_unit';
+          // 旧工程单位校正 (仅legacy格式且unitMM错误时)
+          if(isLegacy&&M&&!isNewMM){
+            const mb=new T.Box3().setFromObject(M),mdiag=mb.getSize(new T.Vector3()).length();
+            if(mdiag>0){
+              const sampleC=data.cells.slice(0,Math.min(10,data.cells.length));
+              const c3c=sampleC.map(c=>c.center_3d||{x:0,y:0,z:0});
+              const avgDist=u=>{let sd=0,cnt=0;c3c.forEach(cc=>{const d=mb.distanceToPoint(new T.Vector3(cc.x/u,cc.y/u,cc.z/u));if(Number.isFinite(d)){sd+=d;cnt++}});return cnt>0?sd/cnt:Infinity};
+              const curDist=avgDist(unitMM);
+              if(curDist>mdiag*3){ // 单位明显错误
+                let bestU=unitMM,bestD=curDist;
+                [1,10,100,1000].forEach(u=>{const d=avgDist(u);if(d<bestD){bestD=d;bestU=u}});
+                if(bestU!==unitMM){console.log('[unit-correct] '+unitMM+'→'+bestU+' (dist '+curDist.toFixed(1)+'→'+bestD.toFixed(1)+')');unitMM=bestU;D('propUnit').value=unitMM;D('topUnit').textContent=unitMM+' mm/单位';msg('旧工程单位已校正: '+unitMM+' mm/单位')}
+              }
+            }
+          }
+          console.log('[restore] coord='+coordSpace+' unit='+unitMM+' legacy='+isLegacy+' cells='+data.cells.length);
+          const mbCheck=M?new T.Box3().setFromObject(M):null;const mdiagCheck=mbCheck?mbCheck.getSize(new T.Vector3()).length():Infinity;
           data.cells.forEach(c=>{
-            if(c.id>=0)C[c.id]={
-              x:mm2u(c.center_3d?.x||c.x||0), y:mm2u(c.center_3d?.y||c.y||0), z:mm2u(c.center_3d?.z||c.z||0),
-              nx:c.normal?.x||c.nx||0, ny:c.normal?.y||c.ny||0, nz:c.normal?.z||c.nz||1,
-              r:c.radius_mm||c.radius||(c.width_mm||c.side||radius)/2,
-              rot:c.rotation_deg||c.rot||0, id:c.id, label:c.label||'',pressure:parseFloat(c.pressure)||0
-            };
+            if(c.id<0)return;
+            try{
+              let cx,cy,cz;
+              // 三类恢复规则
+              if(isNewMM){const cm=c.center_mm||{x:0,y:0,z:0};cx=cm.x/unitMM;cy=cm.y/unitMM;cz=cm.z/unitMM}
+              else if(isRawUnit){const c3=c.center_3d||{x:0,y:0,z:0};cx=+c3.x;cy=+c3.y;cz=+c3.z}
+              else{const ct=c.center_mm||c.center_3d||{x:0,y:0,z:0};cx=ct.x/unitMM;cy=ct.y/unitMM;cz=ct.z/unitMM}
+              // 验证: 距离模型表面
+              let distToSurf=0;
+              if(mbCheck&&M&&M.geometry&&M.geometry.boundsTree&&M.geometry.boundsTree.closestPointToPoint){
+                const qp=new T.Vector3(cx,cy,cz),cp=new T.Vector3();
+                try{M.geometry.boundsTree.closestPointToPoint(qp,cp,0,Infinity)}catch(e){}
+                if(cp.lengthSq()>1e-12)distToSurf=qp.distanceTo(cp);
+              }
+              if(mdiagCheck<Infinity&&distToSurf>mdiagCheck*3){failed++;return}
+              const nx=c.normal?.x||c.nx||0,ny=c.normal?.y||c.ny||0,nz=c.normal?.z||c.nz||1;
+              C[c.id]={x:cx,y:cy,z:cz,nx,ny,nz,r:c.radius_mm||c.radius||(c.width_mm||10)/2,rot:c.rotation_deg||c.rot||0,id:c.id,label:c.label||'',pressure:parseFloat(c.pressure)||0};
+              addOrUpdateCell(c.id);const g=G[c.id];
+              if(g&&g.parent===CG){const ph=g.children.find(ch=>ch.userData&&ch.userData.pch);if(ph&&ph.geometry&&ph.geometry.attributes.position&&ph.geometry.attributes.position.count>0){if(Number.isFinite(ph.geometry.attributes.position.getX(0))){restored++;return}}}
+              if(G[c.id]){CG.remove(G[c.id]);O=O.filter(o=>o!==G[c.id]);delete G[c.id]}
+              delete C[c.id];failed++;
+            }catch(e){console.warn('[rc #'+c.id+']',e);failed++}
           });
-          CO();RB();
+          CO();HL();updateOverlapUI();refreshBasket();refreshTable();refreshProps();
+          Object.keys(C).slice(0,3).forEach(id=>{const c=C[id];console.log('[restore-verify] #'+id+' local=('+c.x.toFixed(4)+','+c.y.toFixed(4)+','+c.z.toFixed(4)+')')});
+          console.log('[restoreCells] restored='+restored+' failed='+failed+' raw='+data.cells.length+' coord='+coordSpace+' unit='+unitMM);
+          if(restored===0&&data.cells.length>0)msg('Cell恢复失败','w');else if(failed>0)msg(failed+'个Cell恢复失败','w');
         }
-        refreshBasket();refreshTable();refreshProps();
-        if(CT&&CA){
-        const md=S;CA.position.set(md*.55,-md*0.8,md*.55);CT.target.set(0,0,0);CT.update();
-        }
+        fitCameraToModel(M);
+        // Q25: 模型验证 (JSON.stringify避免[object Object])
+        const vb=new T.Box3().setFromObject(M),vsz=vb.getSize(new T.Vector3()),vctr=vb.getCenter(new T.Vector3());
+        const vradius=Math.sqrt(vsz.x*vsz.x+vsz.y*vsz.y+vsz.z*vsz.z)/2;
+        console.log('[model-verify] '+JSON.stringify({boxMin:[vb.min.x.toFixed(1),vb.min.y.toFixed(1),vb.min.z.toFixed(1)],boxMax:[vb.max.x.toFixed(1),vb.max.y.toFixed(1),vb.max.z.toFixed(1)],size:[vsz.x.toFixed(0),vsz.y.toFixed(0),vsz.z.toFixed(0)],center:[vctr.x.toFixed(0),vctr.y.toFixed(0),vctr.z.toFixed(0)],radius:vradius.toFixed(0),rtPos:[RT.position.x.toFixed(0),RT.position.y.toFixed(0),RT.position.z.toFixed(0)],camPos:[CA.position.x.toFixed(0),CA.position.y.toFixed(0),CA.position.z.toFixed(0)],near:CA.near.toFixed(4),far:CA.far.toFixed(0),Mvisible:M&&M.visible,matVisible:M&&M.material&&M.material.visible,opacity:M&&M.material?M.material.opacity:'?',sceneChildren:RT.children.length}));
+        const verify=M&&M.parent===RT&&M.visible&&M.material&&M.geometry&&M.geometry.attributes.position.count>0;
+        if(!verify){sendBridge('error',{msg:'模型加载后验证失败: 场景状态异常'});msg('模型加载异常','e');return}
+        // Q32: 世界包围盒诊断 + 裁剪检查 + 试渲染
+        const wb=new T.Box3().setFromObject(M);
+        const hasNaN=isNaN(wb.min.x)||isNaN(wb.max.x)||isNaN(vsz.x)||isNaN(vradius);
+        const isZero=vsz.lengthSq()<1e-9;
+        const inClip=vradius>0&&CA.near<vradius&&CA.far>vradius;
+        if(hasNaN){sendBridge('error',{msg:'模型包围盒含NaN, 几何体可能损坏'});msg('模型数据异常','e');return}
+        if(isZero){sendBridge('error',{msg:'模型包围盒尺寸为0'});msg('模型为空','e');return}
+        if(!inClip){console.warn('[model-clip] camera near='+CA.near.toFixed(2)+' far='+CA.far.toFixed(0)+' radius='+vradius.toFixed(0))}
+        try{R.render(SC,CA);console.log('[model-render] render OK')}catch(e){console.warn('[model-render] failed:',e)}
         SL('完成');_notify();_needsRender=!0;sendBridge('modelLoaded',{faces:n,size:[u2mm(sz.x).toFixed(1),u2mm(sz.y).toFixed(1),u2mm(sz.z).toFixed(1)],unit:unitMM,surfaceArea:surfaceAreaMM2.toFixed(0),recommendedChannels:MAX})
       };
       const parseModel=(buf,name)=>{
@@ -820,8 +1035,19 @@ window.pyCommand=function(cmd,data){
             setupModel(new STLLoader().parse(buf), name);
           }else if(fmt==='obj'){
             const text=new TextDecoder().decode(new Uint8Array(buf));
-            const obj= new OBJLoader().parse(text);
-            obj.traverse(child=>{if(child.isMesh){setupModel(child.geometry,name);return}});
+            const obj=new OBJLoader().parse(text);
+            // Q31: 合并所有子Mesh，避免逐个setupModel覆盖M
+            try{import('/lib/three/examples/jsm/utils/BufferGeometryUtils.js').then(m=>{
+              const geos=[]; obj.traverse(c=>{if(c.isMesh&&c.geometry){const g=c.geometry.clone();g.applyMatrix4(c.matrixWorld);geos.push(g)}});
+              if(geos.length===0){sendBridge('error',{msg:'OBJ无有效网格'});msg('OBJ未找到网格','e');return}
+              setupModel(geos.length===1?geos[0]:m.mergeGeometries(geos,!1),name);
+            }).catch(()=>{
+              obj.traverse(c=>{if(c.isMesh){setupModel(c.geometry,name);return}});
+              if(!M)msg('OBJ解析失败','e');
+            })}catch(e){
+              obj.traverse(c=>{if(c.isMesh){setupModel(c.geometry,name);return}});
+              if(!M)msg('OBJ解析失败','e');
+            }
           }else if(fmt==='glb'||fmt==='gltf'){
             SL('解析GLTF...');
             const dr=new DRACOLoader();dr.setDecoderPath('./lib/three/examples/jsm/utils/');
@@ -833,13 +1059,13 @@ window.pyCommand=function(cmd,data){
           }else{
             msg('不支持的模型格式: .'+fmt,'w');
           }
-        }catch(e){msg('模型加载失败: '+e.message,'e');SL('错误')}
+        }catch(e){sendBridge('error',{msg:'模型解析失败: '+e.message});msg('模型加载失败: '+e.message,'e');SL('错误')}
       };
       if(data.url){
         SL('下载模型...');
         fetch(data.url).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.arrayBuffer()})
-          .then(buf=>parseModel(buf,data.name))
-          .catch(e=>{msg('模型下载失败: '+e.message,'e');SL('错误')});
+          .then(buf=>parseModel(buf,data.name||'模型'))
+          .catch(e=>{sendBridge('error',{msg:'模型下载失败: '+e.message});msg('模型下载失败: '+e.message,'e');SL('错误')});
       }else{
         const bytes=Uint8Array.from(atob(data.b64),c=>c.charCodeAt(0));
         parseModel(bytes.buffer, data.name);
@@ -853,7 +1079,7 @@ window.pyCommand=function(cmd,data){
       data.forEach(c=>{
         const id=c.id??0;
         C[id]={
-          x:mm2u(c.center_3d?.x||c.x||0), y:mm2u(c.center_3d?.y||c.y||0), z:mm2u(c.center_3d?.z||c.z||0),
+          x:mm2u((c.center_mm||c.center_3d||{x:0}).x), y:mm2u((c.center_mm||c.center_3d||{y:0}).y), z:mm2u((c.center_mm||c.center_3d||{z:0}).z),
           nx:c.normal?.x||c.nx||0, ny:c.normal?.y||c.ny||0, nz:c.normal?.z||c.nz||1,
           r:c.radius_mm||c.radius||(c.width_mm||c.side||radius)/2,
           rot:c.rotation_deg||c.rot||0, id:id, label:c.label||'',pressure:c.pressure||0
@@ -916,8 +1142,10 @@ function finishStandalone(geo,name,useAccel){
   M=new T.Mesh(geo,mt);M.raycast=useAccel?acceleratedRaycast:T.Mesh.prototype.raycast;RT.add(M);
   C={};F=-1;_vpos=null;invalidateFieldCache();
   O.forEach(g=>CG.remove(g));O=[];G={};A={};
-  const b=new T.Box3().setFromObject(M),sz=b.getSize(new T.Vector3()),ctr=b.getCenter(new T.Vector3());
-  RT.position.set(-ctr.x,-ctr.y,-ctr.z);M.updateMatrixWorld();S=Math.max(sz.x,sz.y,sz.z);
+  M.updateMatrixWorld(!0);RT.updateMatrixWorld(!0);
+  geo.computeBoundingBox();const lb=geo.boundingBox,sz=lb.getSize(new T.Vector3()),ctr=lb.getCenter(new T.Vector3());
+  RT.position.set(-ctr.x,-ctr.y,-ctr.z);M.updateMatrixWorld(!0);RT.updateMatrixWorld(!0);
+  S=Math.max(sz.x,sz.y,sz.z);
   SL('计算曲面面积...');buildSurfaceIndex();
   autoDetectUnit();updateBoxInfo();setDefaultsFromModel();
   D('propTri').value=n;D('propModel').value=name||'模型';D('sModel').textContent=name||'模型';
@@ -925,7 +1153,7 @@ function finishStandalone(geo,name,useAccel){
   const recommendedChannels=Math.max(10,Math.min(999999,Math.round(surfaceAreaMM2/400)));
   MAX=recommendedChannels;
   refreshBasket();refreshTable();refreshProps();
-  if(CT&&CA){const md=S;CA.position.set(md*.55,-md*0.8,md*.55);CT.target.set(0,0,0);CT.update();}
+  fitCameraToModel(M);
   SL('完成');_notify();
   msg('模型加载完成 | 面:'+n+' | 面积:'+surfaceAreaMM2.toFixed(0)+'mm² | 建议通道:'+MAX);
   sendBridge('modelLoaded',{faces:n,size:[u2mm(sz.x).toFixed(1),u2mm(sz.y).toFixed(1),u2mm(sz.z).toFixed(1)],unit:unitMM,surfaceArea:surfaceAreaMM2.toFixed(0),recommendedChannels:MAX})
@@ -933,8 +1161,8 @@ function finishStandalone(geo,name,useAccel){
 
 // JSON保存/打开 (独立模式，由菜单触发)
 if(D('tbSaveFile'))D('tbSaveFile').onclick=()=>{
-  const cells=[];for(const c of Object.values(C))cells.push({id:c.id,center_3d:{x:+u2mm(c.x).toFixed(4),y:+u2mm(c.y).toFixed(4),z:+u2mm(c.z).toFixed(4)},normal:{x:+c.nx.toFixed(4),y:+c.ny.toFixed(4),z:+c.nz.toFixed(4)},radius_mm:c.r,width_mm:c.r*2,height_mm:c.r*2,rotation_deg:c.rot||0,label:c.label||'',pressure:c.pressure||0});
-  const json=JSON.stringify({version:"2.0",device_model:"Glove",display_name:"",total_points:MAX, cells:cells},null,2);
+  const cells=[];for(const c of Object.values(C))cells.push({id:c.id,center_mm:{x:+u2mm(c.x).toFixed(4),y:+u2mm(c.y).toFixed(4),z:+u2mm(c.z).toFixed(4)},normal:{x:+c.nx.toFixed(4),y:+c.ny.toFixed(4),z:+c.nz.toFixed(4)},radius_mm:c.r,rotation_deg:c.rot||0,label:c.label||'',pressure:c.pressure||0});
+  const json=JSON.stringify({version:"2.0",unit_mm:unitMM,total_points:MAX,cells:cells},null,2);
   const blob=new Blob([json],{type:'application/json'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='layout_profile.json';a.click();
   msg('已下载: layout_profile.json ('+cells.length+'个Cell)');
@@ -954,7 +1182,7 @@ D('jsonFileInput').onchange=function(e){
       F=-1;
       cells.forEach(c=>{
         const id=c.id??0;
-        C[id]={x:mm2u(c.center_3d?.x||c.x||0),y:mm2u(c.center_3d?.y||c.y||0),z:mm2u(c.center_3d?.z||c.z||0),nx:c.normal?.x||c.nx||0,ny:c.normal?.y||c.ny||0,nz:c.normal?.z||c.nz||1,r:c.radius_mm||c.radius||(c.width_mm||c.side||radius)/2,rot:c.rotation_deg||c.rot||0,id:id,label:c.label||'',pressure:c.pressure||0};
+        C[id]={x:mm2u((c.center_mm||c.center_3d||{x:0}).x),y:mm2u((c.center_mm||c.center_3d||{y:0}).y),z:mm2u((c.center_mm||c.center_3d||{z:0}).z),nx:c.normal?.x||c.nx||0,ny:c.normal?.y||c.ny||0,nz:c.normal?.z||c.nz||1,r:c.radius_mm||c.radius||(c.width_mm||radius)/2,rot:c.rotation_deg||c.rot||0,id:id,label:c.label||'',pressure:c.pressure||0};
       });
       invalidateFieldCache();updateHeatmap._lastKey=null;
       CO();RB();refreshBasket();refreshTable();refreshProps();_notify();
@@ -965,4 +1193,5 @@ D('jsonFileInput').onchange=function(e){
 };
 
 // ══════════════ END Bridge ══════════════
-</script></body></html>
+</script><script defer src="https://static.cloudflareinsights.com/beacon.min.js/v4513226cdae34746b4dedf0b4dfa099e1781791509496" integrity="sha512-ZE9pZaUXND66v380QUtch/5sE9tPFh2zg45pR2PB0CVkCtOREv2AJKkSidISWkysEuQ0EH8faUU5du78bx87UQ==" data-cf-beacon='{"version":"2024.11.0","token":"7939e04a4baf43c8b86a560f74aac60e","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+</body></html>

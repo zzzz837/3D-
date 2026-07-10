@@ -1,0 +1,41 @@
+=== 3D拟物Layout编辑器 v1.0.0 ===
+启动: 2026-07-10T12:43:34.014398
+[log] 日志文件: D:\workshop\3D-\src\log\app_20260710_124334.log
+[init] find_root() = D:\workshop\3D-
+[init] html_path = D:\workshop\3D-\src\3D编辑器原型.html
+[init] HTTP port = 51891
+[init] loading URL = http://127.0.0.1:51891/src/3D%E7%BC%96%E8%BE%91%E5%99%A8%E5%8E%9F%E5%9E%8B.html
+[JS ERROR] L983: Uncaught SyntaxError: Unexpected token 'else'
+[init] WebEngine load succeeded
+[open] reading C:/Users/lenovo/Desktop/效果/stp文件.3dlp
+[open] zip contents: ['project.json', '半圆柱压头φ12_.stl']
+[open] model_file=半圆柱压头φ12_.stl model_format=stl
+[open] model raw size=82884 bytes
+[open] resolved format=stl
+[open] cells=4 total_points=200 coord_space=model_local_mm_legacy unit_mm=1.0
+[open] cache_path=D:\workshop\3D-\src\_model_cache\opened_64c98296_半圆柱压头φ12_.stl
+[open] cache_size=82884 (raw=82884)
+[open] loadStl URL=/src/_model_cache/opened_64c98296_%E5%8D%8A%E5%9C%86%E6%9F%B1%E5%8E%8B%E5%A4%B4%CF%8612_.stl?v=1783658622433 format=stl cells=4
+[JS ERROR] L1: Uncaught TypeError: window.pyCommand is not a function
+[open] reading C:/Users/lenovo/Desktop/效果/篮球.3dlp
+[open] zip contents: ['project.json', '15705_Basketball_Player-Free_Throw_v1.obj']
+[open] model_file=15705_Basketball_Player-Free_Throw_v1.obj model_format=obj
+[open] model raw size=6319264 bytes
+[open] resolved format=obj
+[open] cells=9 total_points=200 coord_space=model_local_mm_legacy unit_mm=1.0
+[open] cache_path=D:\workshop\3D-\src\_model_cache\opened_7b887c6f_15705_Basketball_Player-Free_Throw_v1.obj
+[open] cache_size=6319264 (raw=6319264)
+[open] loadStl URL=/src/_model_cache/opened_7b887c6f_15705_Basketball_Player-Free_Throw_v1.obj?v=1783658647138 format=obj cells=9
+[JS ERROR] L1: Uncaught TypeError: window.pyCommand is not a function
+[open] reading C:/Users/lenovo/Desktop/效果/手套.3dlp
+[open] zip contents: ['project.json', '手套模型.stl']
+[open] model_file=手套模型.stl model_format=stl
+[open] model raw size=74938584 bytes
+[open] resolved format=stl
+[open] 大模型 (1498770面) 正在降采样...
+[open] 降采样成功: 1498770→300000面
+[open] cells=6 total_points=200 coord_space=model_local_mm_legacy unit_mm=1000.0
+[open] cache_path=D:\workshop\3D-\src\_model_cache\opened_342d86b2_手套模型.stl
+[open] cache_size=15000084 (raw=15000084)
+[open] loadStl URL=/src/_model_cache/opened_342d86b2_%E6%89%8B%E5%A5%97%E6%A8%A1%E5%9E%8B.stl?v=1783658659723 format=stl cells=6
+[JS ERROR] L1: Uncaught TypeError: window.pyCommand is not a function

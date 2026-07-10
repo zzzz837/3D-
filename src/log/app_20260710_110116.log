@@ -1,0 +1,39 @@
+=== 3D拟物Layout编辑器 v1.0.0 ===
+启动: 2026-07-10T11:01:16.723641
+[log] 日志文件: D:\workshop\3D-\src\log\app_20260710_110116.log
+[init] find_root() = D:\workshop\3D-
+[init] html_path = D:\workshop\3D-\src\3D编辑器原型.html
+[init] HTTP port = 62236
+[init] loading URL = http://127.0.0.1:62236/src/3D%E7%BC%96%E8%BE%91%E5%99%A8%E5%8E%9F%E5%9E%8B.html
+[init] WebEngine load succeeded
+[open] reading C:/Users/lenovo/Desktop/效果/手套.3dlp
+[open] zip contents: ['project.json', '手套模型.stl']
+[open] model_file=手套模型.stl model_format=stl
+[open] model raw size=74938584 bytes
+[open] resolved format=stl
+[open] 大模型 (1498770面) 正在降采样...
+[open] 降采样成功: 1498770→300000面
+[open] cells=6 total_points=200
+[open] cache_path=D:\workshop\3D-\src\_model_cache\opened_b7912367_手套模型.stl
+[open] cache_size=15000084 (raw=15000084)
+[open] loadStl URL=/src/_model_cache/opened_b7912367_%E6%89%8B%E5%A5%97%E6%A8%A1%E5%9E%8B.stl?v=1783652489632 format=stl cells=6
+[JS INFO] L815: [loadStl] received {"url":"/src/_model_cache/opened_b7912367_%E6%89%8B%E5%A5%97%E6%A8%A","format":"stl","unit_mm":1000,"hasExplicitUnit":true,"cells":6}
+[JS INFO] L910: [restoreCells] restored=0 failed=6 raw=6 unit=1000
+[JS INFO] L920: [model-verify] {"boxMin":["-0.3","-0.2","-0.5"],"boxMax":["0.3","0.2","0.5"],"size":["1","0","1"],"center":["0","0","0"],"radius":"1","rtPos":["0","-0","-1"],"camPos":["2","-1","2"],"near":"0.0100","far":"65","Mvisible":true,"matVisible":true,"opacity":0.92,"sceneChildren":2}
+[JS INFO] L931: [model-render] render OK
+[open] reading C:/Users/lenovo/Desktop/效果/手套1.3dlp
+[open] zip contents: ['project.json', '手套模型.stl']
+[open] model_file=手套模型.stl model_format=stl
+[open] model raw size=74938584 bytes
+[open] resolved format=stl
+[open] 大模型 (1498770面) 正在降采样...
+[open] 降采样成功: 1498770→300000面
+[open] cells=22 total_points=200
+[open] cache_path=D:\workshop\3D-\src\_model_cache\opened_6c79fb11_手套模型.stl
+[open] cache_size=15000084 (raw=15000084)
+[open] loadStl URL=/src/_model_cache/opened_6c79fb11_%E6%89%8B%E5%A5%97%E6%A8%A1%E5%9E%8B.stl?v=1783652503077 format=stl cells=22
+[JS INFO] L815: [loadStl] received {"url":"/src/_model_cache/opened_6c79fb11_%E6%89%8B%E5%A5%97%E6%A8%A","format":"stl","unit_mm":1,"hasExplicitUnit":true,"cells":22}
+[JS INFO] L871: [unit-migrate] 1000 (avgDist=0.09)
+[JS INFO] L910: [restoreCells] restored=0 failed=22 raw=22 unit=1000
+[JS INFO] L920: [model-verify] {"boxMin":["-0.3","-0.2","-0.5"],"boxMax":["0.3","0.2","0.5"],"size":["1","0","1"],"center":["0","0","0"],"radius":"1","rtPos":["0","-0","-1"],"camPos":["2","-1","2"],"near":"0.0100","far":"65","Mvisible":true,"matVisible":true,"opacity":0.92,"sceneChildren":2}
+[JS INFO] L931: [model-render] render OK

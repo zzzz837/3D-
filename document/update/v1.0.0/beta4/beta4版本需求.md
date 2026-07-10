@@ -109,3 +109,4 @@ updateHeatmap()
 # 二、移除缺口检测功能
 
 已从"工具"菜单移除 🔍 缺口检测，对应 JS 函数 (`detectGaps` / `clearGaps`) 及 UI 元素 (`gapWarn`) 均已删除。参见 完成报告.md。
+

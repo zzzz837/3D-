@@ -1,0 +1,8 @@
+=== 3D拟物Layout编辑器 v1.0.0 ===
+启动: 2026-07-10T16:02:27.706923
+[log] 日志文件: D:\workshop\3D-\src\log\app_20260710_160227.log
+[init] find_root() = D:\workshop\3D-
+[init] html_path = D:\workshop\3D-\src\3D编辑器原型.html
+[init] HTTP port = 53217
+[init] loading URL = http://127.0.0.1:53217/src/3D%E7%BC%96%E8%BE%91%E5%99%A8%E5%8E%9F%E5%9E%8B.html
+[init] WebEngine load succeeded

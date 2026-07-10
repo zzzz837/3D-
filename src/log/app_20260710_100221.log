@@ -1,0 +1,41 @@
+=== 3D拟物Layout编辑器 v1.0.0 ===
+启动: 2026-07-10T10:02:21.446277
+[log] 日志文件: D:\workshop\3D-\src\log\app_20260710_100221.log
+[init] find_root() = D:\workshop\3D-
+[init] html_path = D:\workshop\3D-\src\3D编辑器原型.html
+[init] HTTP port = 60212
+[init] loading URL = http://127.0.0.1:60212/src/3D%E7%BC%96%E8%BE%91%E5%99%A8%E5%8E%9F%E5%9E%8B.html
+[init] WebEngine load succeeded
+[stp] === 非STP直接加载: D:/workshop/3D-/手套模型.stl ===
+[decimate] fast_simplification not available: ``target_reduction`` must be between 0 and 1
+[decimate] 降采样未执行: 缺少 fast_simplification 组件, 使用原模型 (1498770 面)
+[JS INFO] L800: [loadStl] received {"url":"/src/_model_cache/%E6%89%8B%E5%A5%97%E6%A8%A1%E5%9E%8B.stl","format":"stl","unit_mm":1,"hasExplicitUnit":true,"cells":0}
+[JS INFO] L848: [model-verify] {"boxMin":["299.7","-400.2","499.5"],"boxMax":["300.3","-399.8","500.5"],"size":["1","0","1"],"center":["300","-400","500"],"radius":"1","rtPos":["0","-0","-1"],"camPos":["2","-1","2"],"near":"0.0100","far":"65","Mvisible":true,"matVisible":true,"opacity":0.92,"sceneChildren":2}
+[JS INFO] L859: [model-render] render OK
+[stp] === STP转换开始: D:/workshop/3D-/半圆柱压头φ12_.stp ===
+[stp] converter=d:\workshop\3D-\src\stp_converter.py exists=True
+[stp] input=D:/workshop/3D-/半圆柱压头φ12_.stp tmp_out=C:\Users\lenovo\AppData\Local\Temp\_stp_convert_11400.stl
+[stp] in-process convert started
+[stp] in-process convert done
+[stp] tmp_out exists=True size=82884
+[stp] output STL: 82884 bytes, 1656 faces
+[stp] === STP转换成功: 1656 faces, 进入loadStl流程 ===
+[JS INFO] L800: [loadStl] received {"url":"/src/_model_cache/%E5%8D%8A%E5%9C%86%E6%9F%B1%E5%8E%8B%E5%A4","format":"stl","unit_mm":1,"hasExplicitUnit":true,"cells":0}
+[JS INFO] L848: [model-verify] {"boxMin":["265.0","-422.9","465.0"],"boxMax":["335.0","-377.1","535.0"],"size":["70","46","70"],"center":["300","-400","500"],"radius":"55","rtPos":["0","-23","0"],"camPos":["130","-74","130"],"near":"0.0545","far":"5455","Mvisible":true,"matVisible":true,"opacity":0.92,"sceneChildren":2}
+[JS INFO] L859: [model-render] render OK
+[stp] === 非STP直接加载: D:/workshop/3D-/obj模型/15705_Basketball_Player-Free_Throw_v1.obj ===
+[JS INFO] L800: [loadStl] received {"url":"/src/_model_cache/15705_Basketball_Player-Free_Throw_v1.obj","format":"obj","unit_mm":1,"hasExplicitUnit":true,"cells":0}
+[JS INFO] L848: [model-verify] {"boxMin":["297.6","-402.4","494.6"],"boxMax":["302.4","-397.6","505.4"],"size":["5","5","11"],"center":["300","-400","500"],"radius":"6","rtPos":["4","6","-5"],"camPos":["15","-9","15"],"near":"0.0100","far":"637","Mvisible":true,"matVisible":true,"opacity":0.92,"sceneChildren":2}
+[JS INFO] L859: [model-render] render OK
+[open] reading C:/Users/lenovo/Desktop/效果/机器人.3dlp
+[open] zip contents: ['project.json', '11072_HumanoidRobot_v3.obj']
+[open] model_file=11072_HumanoidRobot_v3.obj model_format=obj
+[open] model raw size=7750887 bytes
+[open] resolved format=obj
+[open] cells=37 total_points=200
+[open] cache_path=D:\workshop\3D-\src\_model_cache\opened_c50b63a5_11072_HumanoidRobot_v3.obj
+[open] cache_size=7750887 (raw=7750887)
+[open] loadStl URL=/src/_model_cache/opened_c50b63a5_11072_HumanoidRobot_v3.obj?v=1783648999815 format=obj cells=37
+[JS INFO] L800: [loadStl] received {"url":"/src/_model_cache/opened_c50b63a5_11072_HumanoidRobot_v3.obj","format":"obj","unit_mm":10,"hasExplicitUnit":true,"cells":37}
+[JS INFO] L848: [model-verify] {"boxMin":["256.0","-414.9","409.4"],"boxMax":["344.0","-385.1","590.6"],"size":["88","30","181"],"center":["300","-400","500"],"radius":"102","rtPos":["0","10","-91"],"camPos":["242","-138","242"],"near":"0.1019","far":"10186","Mvisible":true,"matVisible":true,"opacity":0.92,"sceneChildren":2}
+[JS INFO] L859: [model-render] render OK

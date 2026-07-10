@@ -1,0 +1,37 @@
+=== 3D拟物Layout编辑器 v1.0.0 ===
+启动: 2026-07-10T10:47:39.859186
+[log] 日志文件: D:\workshop\3D-\src\log\app_20260710_104739.log
+[init] find_root() = D:\workshop\3D-
+[init] html_path = D:\workshop\3D-\src\3D编辑器原型.html
+[init] HTTP port = 59617
+[init] loading URL = http://127.0.0.1:59617/src/3D%E7%BC%96%E8%BE%91%E5%99%A8%E5%8E%9F%E5%9E%8B.html
+[init] WebEngine load succeeded
+[open] reading C:/Users/lenovo/Desktop/效果/手套.3dlp
+[open] zip contents: ['project.json', '手套模型.stl']
+[open] model_file=手套模型.stl model_format=stl
+[open] model raw size=74938584 bytes
+[open] resolved format=stl
+[open] 大模型 (1498770面) 正在降采样...
+[open] 降采样成功: 1498770→300000面
+[open] cells=6 total_points=200
+[open] cache_path=D:\workshop\3D-\src\_model_cache\opened_8029a1b3_手套模型.stl
+[open] cache_size=15000084 (raw=15000084)
+[open] loadStl URL=/src/_model_cache/opened_8029a1b3_%E6%89%8B%E5%A5%97%E6%A8%A1%E5%9E%8B.stl?v=1783651672392 format=stl cells=6
+[JS INFO] L815: [loadStl] received {"url":"/src/_model_cache/opened_8029a1b3_%E6%89%8B%E5%A5%97%E6%A8%A","format":"stl","unit_mm":1000,"hasExplicitUnit":true,"cells":6}
+[JS INFO] L860: [restoreCells] restored=6 failed=0 total=6
+[JS INFO] L870: [model-verify] {"boxMin":["-0.3","-0.2","-0.5"],"boxMax":["0.3","0.2","0.5"],"size":["1","0","1"],"center":["0","0","0"],"radius":"1","rtPos":["0","-0","-1"],"camPos":["2","-1","2"],"near":"0.0100","far":"65","Mvisible":true,"matVisible":true,"opacity":0.92,"sceneChildren":2}
+[JS INFO] L881: [model-render] render OK
+[open] reading C:/Users/lenovo/Desktop/效果/篮球.3dlp
+[open] zip contents: ['project.json', '15705_Basketball_Player-Free_Throw_v1.obj']
+[open] model_file=15705_Basketball_Player-Free_Throw_v1.obj model_format=obj
+[open] model raw size=6319264 bytes
+[open] resolved format=obj
+[open] cells=9 total_points=200
+[open] cache_path=D:\workshop\3D-\src\_model_cache\opened_d2b16ca6_15705_Basketball_Player-Free_Throw_v1.obj
+[open] cache_size=6319264 (raw=6319264)
+[open] loadStl URL=/src/_model_cache/opened_d2b16ca6_15705_Basketball_Player-Free_Throw_v1.obj?v=1783651677019 format=obj cells=9
+[JS INFO] L815: [loadStl] received {"url":"/src/_model_cache/opened_d2b16ca6_15705_Basketball_Player-Fr","format":"obj","unit_mm":1,"hasExplicitUnit":true,"cells":9}
+[JS INFO] L860: [restoreCells] restored=9 failed=0 total=9
+[JS INFO] L870: [model-verify] {"boxMin":["-2.4","-2.4","-5.4"],"boxMax":["2.4","2.4","5.4"],"size":["5","5","11"],"center":["0","0","0"],"radius":"6","rtPos":["4","6","-5"],"camPos":["15","-9","15"],"near":"0.0100","far":"637","Mvisible":true,"matVisible":true,"opacity":0.92,"sceneChildren":2}
+[JS INFO] L881: [model-render] render OK
+[JS INFO] L585: [perf] vertex-local-pos cached 43ms 255984 verts
