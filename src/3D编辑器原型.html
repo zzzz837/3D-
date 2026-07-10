@@ -521,23 +521,6 @@ else if(t<.875){const s=(t-.625)/.25;r=255;g=255*(1-s);b=0}
 else{const s=(t-.875)/.125;r=255*(1-s*.5);g=0;b=0}
 return new T.Color(r/255,g/255,b/255)}
 
-// 柔和热力色: 蓝→青→绿→橙→红, 低值不产生深色
-function softHeatColor(t){
-  t=Math.max(0,Math.min(1,t));
-  const stops=[
-    [0.00,new T.Color(0x2b83ba)],[0.25,new T.Color(0x48b8c4)],
-    [0.50,new T.Color(0xa6d96a)],[0.72,new T.Color(0xfdae61)],
-    [1.00,new T.Color(0xd7191c)]
-  ];
-  for(let i=1;i<stops.length;i++){
-    if(t<=stops[i][0]){
-      const a=stops[i-1],b=stops[i],u=(t-a[0])/(b[0]-a[0]);
-      return a[1].clone().lerp(b[1],u);
-    }
-  }
-  return stops[stops.length-1][1].clone();
-}
-
 function getCellPressures(cells){
   const p={};cells.forEach(c=>{const v=parseFloat(c.pressure);p[c.id]=Number.isFinite(v)?v:0});return p;
 }
@@ -698,7 +681,26 @@ function smoothScalars(scalars,n,iterations){
   }
 }
 
-// ── 快速着色 (f1d0a79 + 方案A: 邻接平滑3次) ──
+// ── 双层着色: 核心暖色斑 + 灰色过渡外圈 ──
+// 暖色单相: 灰→浅橙→橙→深红
+function warmHeatColor(t){
+  t=Math.max(0,Math.min(1,t));
+  const stops=[
+    [0.00,new T.Color(0x7f8998)],  // 模型灰 (无压力)
+    [0.15,new T.Color(0xc49585)],  // 浅暖灰褐
+    [0.40,new T.Color(0xe07050)],  // 暖橙
+    [0.70,new T.Color(0xd04030)],  // 深红
+    [1.00,new T.Color(0x8b1a1a)],  // 暗深红
+  ];
+  for(let i=1;i<stops.length;i++){
+    if(t<=stops[i][0]){
+      const a=stops[i-1],b=stops[i],u=(t-a[0])/(b[0]-a[0]);
+      return a[1].clone().lerp(b[1],u);
+    }
+  }
+  return stops[stops.length-1][1].clone();
+}
+
 function applyFieldColors(cellPressures){
   const t0=performance.now(),geo=M.geometry,col=geo.attributes.color,pos=geo.attributes.position,n=pos.count;
   if(!geo.attributes.color)geo.setAttribute('color',new T.BufferAttribute(new Float32Array(n*3),3));
@@ -708,15 +710,30 @@ function applyFieldColors(cellPressures){
   for(let k=0;k<ncv;k++){const i=_cv[k],s=_ioff[i],e=_ioff[i+1];if(s===e)continue;let num=0,den=0;
     for(let j=s;j<e;j++){const p=cellPressures[_icell[j]]||0,w=_iwgt[j];num+=p*w;den+=w}
     if(den>1e-6)scalars[i]=num/den}
-  // Step2: 邻接平滑 (方案A: 3次, 低面模型核心优化)
+  // Step2: 邻接平滑
   if(_adj&&_adj[0]&&_adj[0].length===n+1)smoothScalars(scalars,n,3);
-  // Step3: jetColor + 置信度混合
-  const th=0.01;let cov=0;
-  for(let k=0;k<ncv;k++){const i=_cv[k];const pr=scalars[i];if(pr<=0)continue;let cf=0;
+  // Step3: 双层着色 (灰色外圈→暖色核心)
+  const low=0.05,mid=0.30;
+  for(let k=0;k<ncv;k++){const i=_cv[k];const s=scalars[i];if(s<=0)continue;let cf=0;
     for(let j=_ioff[i];j<_ioff[i+1];j++)cf+=_iwgt[j];cf=Math.min(1,cf);
-    if(cf<=th){col.setXYZ(i,MODEL_GREY.r,MODEL_GREY.g,MODEL_GREY.b);continue}
-    cov++;const jc=jetColor(Math.max(0,Math.min(1,pr)));col.setXYZ(i,
-      MODEL_GREY.r+(jc.r-MODEL_GREY.r)*cf,MODEL_GREY.g+(jc.g-MODEL_GREY.g)*cf,MODEL_GREY.b+(jc.b-MODEL_GREY.b)*cf)}
+    if(cf<=0.01){col.setXYZ(i,MODEL_GREY.r,MODEL_GREY.g,MODEL_GREY.b);continue}
+    if(s<low){col.setXYZ(i,MODEL_GREY.r,MODEL_GREY.g,MODEL_GREY.b);continue}
+    if(s<mid){
+      // 过渡外圈: mix(灰色, 暖色, α) α随标量递增
+      const t=(s-low)/(mid-low); // 0→1 across transition zone
+      const alpha=t*cf;           // transparency increases with scalar
+      const heat=warmHeatColor(s);
+      col.setXYZ(i,MODEL_GREY.r+(heat.r-MODEL_GREY.r)*alpha,
+                  MODEL_GREY.g+(heat.g-MODEL_GREY.g)*alpha,
+                  MODEL_GREY.b+(heat.b-MODEL_GREY.b)*alpha);
+    }else{
+      // 压力核心: mix(灰色, 暖色, cf) 饱满暖色
+      const heat=warmHeatColor(s);
+      col.setXYZ(i,MODEL_GREY.r+(heat.r-MODEL_GREY.r)*cf,
+                  MODEL_GREY.g+(heat.g-MODEL_GREY.g)*cf,
+                  MODEL_GREY.b+(heat.b-MODEL_GREY.b)*cf);
+    }
+  }
   col.needsUpdate=!0;M.material.vertexColors=!0;
   return performance.now()-t0;
 }
@@ -727,7 +744,7 @@ function updateCellPreviewStyle(cellPressures){
     const id=g.userData.id,cp=Math.max(0,Math.min(1,cellPressures[id]||0));
     g.children.forEach(ch=>{
       if(ch.userData&&ch.userData.pch){ch.visible=!PREVIEW;if(!PREVIEW){ch.material.opacity=.72;ch.material.color.set(0x4ec9b0)}}
-      if(ch.userData&&ch.userData.center){ch.visible=!0;ch.material.opacity=PREVIEW?.82:.95;ch.material.color.set(PREVIEW?softHeatColor(cp):(V[id]>1?0xff4444:0x4ec9b0))}
+      if(ch.userData&&ch.userData.center){ch.visible=!0;ch.material.opacity=PREVIEW?.82:.95;ch.material.color.set(PREVIEW?warmHeatColor(cp):(V[id]>1?0xff4444:0x4ec9b0))}
       if(ch.userData&&ch.userData.isLabel){ch.visible=PREVIEW}
     });
     const ed=g.children.find(ch=>ch.isLine);if(ed){ed.visible=!PREVIEW;if(!PREVIEW)ed.material.opacity=.55}

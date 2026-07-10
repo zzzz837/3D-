@@ -231,25 +231,20 @@ def start_server(root_dir):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        # 日志: 同时输出到终端和 src/log/ 文件
+        # 日志: 仅记录操作事件, 不记录调试print
         import logging, datetime
         log_dir = os.path.join(find_root(), "src", "log")
         os.makedirs(log_dir, exist_ok=True)
         log_file = os.path.join(log_dir, datetime.datetime.now().strftime("app_%Y%m%d_%H%M%S.log"))
         self._log_fp = open(log_file, 'w', encoding='utf-8')
         self._log_fp.write(f"=== 3D拟物Layout编辑器 v{VER} ===\n")
-        self._log_fp.write(f"启动: {datetime.datetime.now().isoformat()}\n")
+        self._log_fp.write(f"启动: {datetime.datetime.now().isoformat()}\n\n")
         self._log_fp.flush()
-        _orig_print = print
-        def _tee_print(*args, **kwargs):
-            _orig_print(*args, **kwargs)
-            try:
-                msg = ' '.join(str(a) for a in args)
-                if 'flush' in kwargs: del kwargs['flush']
-                self._log_fp.write(msg + '\n')
-                self._log_fp.flush()
-            except: pass
-        import builtins; builtins.print = _tee_print
+        def log_op(msg):
+            ts = datetime.datetime.now().strftime("%H:%M:%S")
+            self._log_fp.write(f"[{ts}] {msg}\n")
+            self._log_fp.flush()
+        self._log_op = log_op
         print(f"[log] 日志文件: {log_file}")
         self.setWindowTitle(f"{APP} v{VER}")
         self.resize(1440, 900); self.setMinimumSize(1024, 700)
@@ -397,6 +392,7 @@ class MainWindow(QMainWindow):
             self._current_file = path
             self._dirty = False
             self._sl.setText(f"已保存: {Path(path).name} ({len(cells_json)}个Cell)")
+            self._log_op(f"保存项目: {Path(path).name} | {len(cells_json)}个Cell")
         except Exception as e:
             QMessageBox.warning(self, "保存失败", str(e))
 
@@ -425,6 +421,7 @@ class MainWindow(QMainWindow):
         info = dlg.get_project_info()
         path = info["model_path"]
         fmt = Path(path).suffix.lstrip('.').lower()
+        self._log_op(f"新建项目: {info['name']} | 模型: {Path(path).name} | 格式: {fmt}")
         if fmt in ('stp', 'step'):
             print(f"[stp] === STP转换开始: {path} ===", flush=True)
             self._sl.setText("正在转换STEP格式...")
@@ -491,6 +488,7 @@ class MainWindow(QMainWindow):
                     raise RuntimeError("转换结果STL面数为0")
                 fmt = 'stl'
                 print(f"[stp] === STP转换成功: {face_count} faces, 进入loadStl流程 ===", flush=True)
+                self._log_op(f"STP转换成功: {face_count}面")
             except FileNotFoundError as e:
                 print(f"[stp] FATAL: {e}", flush=True)
                 QMessageBox.warning(self, "STEP转换失败", str(e))
@@ -554,6 +552,7 @@ class MainWindow(QMainWindow):
                     print(f"[decimate] {msg}: {e}", flush=True)
                 self._sl.setText(msg)
                 print(f"[decimate] {msg}", flush=True)
+                self._log_op(msg)
         Path(cache_path).write_bytes(raw)
         self._model_cache_path = cache_path
 
@@ -593,6 +592,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "打开失败", str(e))
 
     def _open_package(self, path):
+        self._log_op(f"打开工程: {Path(path).name}")
         print(f"[open] reading {path}", flush=True)
         with zipfile.ZipFile(path, 'r') as zf:
             names = zf.namelist()
