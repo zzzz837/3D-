@@ -484,6 +484,7 @@ cv.addEventListener('mousemove',e=>{
       c.x=p.x;c.y=p.y;c.z=p.z;c.nx=n.x;c.ny=n.y;c.nz=n.z;
       invalidateFieldCache();updateHeatmap._lastKey=null;
       addOrUpdateCell(dragCellId);
+      if(PREVIEW)updateHeatmap();
     }
     return;
   }
@@ -501,6 +502,7 @@ cv.addEventListener('mouseup',e=>{
     dragging=!1; CT.enabled=!0; cv.style.cursor='';
     if(dragCellId>=0){
       CO(); addOrUpdateCell(dragCellId);
+      if(PREVIEW)updateHeatmap();
       refreshBasket(); refreshTable(); refreshProps();
       msg('Cell #'+dragCellId+' 已移动');
     }
@@ -752,11 +754,11 @@ function smoothScalars(scalars,n,iterations){
 function warmHeatColor(t){
   t=Math.max(0,Math.min(1,t));
   const stops=[
-    [0.00,new T.Color(0xa89080)],  // 暖灰褐 (可见, 接近模型灰但偏暖)
-    [0.15,new T.Color(0xd08060)],  // 暖橙
-    [0.40,new T.Color(0xe05040)],  // 亮红橙
-    [0.70,new T.Color(0xc02020)],  // 深红
-    [1.00,new T.Color(0x8b1515)],  // 暗深红
+    [0.00,new T.Color(0x7f8998)],
+    [0.18,new T.Color(0xe0a890)],
+    [0.45,new T.Color(0xf08060)],
+    [0.75,new T.Color(0xf05040)],
+    [1.00,new T.Color(0xe83030)],
   ];
   for(let i=1;i<stops.length;i++){
     if(t<=stops[i][0]){
@@ -785,12 +787,12 @@ function applyFieldColors(cellPressures){
     if(cf<=0.01){col.setXYZ(i,MODEL_GREY.r,MODEL_GREY.g,MODEL_GREY.b);continue}
     if(s<low){col.setXYZ(i,MODEL_GREY.r,MODEL_GREY.g,MODEL_GREY.b);continue}
     if(s<mid){
-      const t=(s-low)/(mid-low),alpha=t*cf*0.8;
-      const heat=warmHeatColor(s);
+      const t=(s-low)/(mid-low),alpha=t*cf*0.6;
+      const heat=jetColor(s);
       col.setXYZ(i,MODEL_GREY.r+(heat.r-MODEL_GREY.r)*alpha,MODEL_GREY.g+(heat.g-MODEL_GREY.g)*alpha,MODEL_GREY.b+(heat.b-MODEL_GREY.b)*alpha);
     }else{
-      const heat=warmHeatColor(s);
-      col.setXYZ(i,MODEL_GREY.r+(heat.r-MODEL_GREY.r)*cf,MODEL_GREY.g+(heat.g-MODEL_GREY.g)*cf,MODEL_GREY.b+(heat.b-MODEL_GREY.b)*cf);
+      const heat=jetColor(s);
+      col.setXYZ(i,MODEL_GREY.r+(heat.r-MODEL_GREY.r)*cf*0.65,MODEL_GREY.g+(heat.g-MODEL_GREY.g)*cf*0.65,MODEL_GREY.b+(heat.b-MODEL_GREY.b)*cf*0.65);
     }
   }
   col.needsUpdate=!0;M.material.vertexColors=!0;
@@ -803,7 +805,7 @@ function updateCellPreviewStyle(cellPressures){
     const id=g.userData.id,cp=Math.max(0,Math.min(1,cellPressures[id]||0));
     g.children.forEach(ch=>{
       if(ch.userData&&ch.userData.pch){ch.visible=!PREVIEW;if(!PREVIEW){ch.material.opacity=.72;ch.material.color.set(0x4ec9b0)}}
-      if(ch.userData&&ch.userData.center){ch.visible=!0;ch.material.opacity=PREVIEW?.82:.95;ch.material.color.set(PREVIEW?warmHeatColor(cp):(V[id]>1?0xff4444:0x4ec9b0))}
+      if(ch.userData&&ch.userData.center){ch.visible=!0;ch.material.opacity=PREVIEW?.82:.95;ch.material.color.set(PREVIEW?jetColor(cp):(V[id]>1?0xff4444:0x4ec9b0))}
       if(ch.userData&&ch.userData.isLabel){ch.visible=PREVIEW}
     });
     const ed=g.children.find(ch=>ch.isLine);if(ed){ed.visible=!PREVIEW;if(!PREVIEW)ed.material.opacity=.55}
@@ -848,7 +850,9 @@ function togglePreview(){
       depthTest:M.material.depthTest,side:M.material.side,
       blending:M.material.blending,vertexColors:M.material.vertexColors
     };
-    M.material.side=T.FrontSide;M.material.vertexColors=!0;
+    M.material.side=T.FrontSide;M.material.color.set(0xffffff);M.material.vertexColors=!0;
+    if(!M.geometry.attributes.color)M.geometry.setAttribute('color',new T.BufferAttribute(new Float32Array(M.geometry.attributes.position.count*3),3));
+    const fill=M.geometry.attributes.color;for(let i=0;i<fill.count;i++)fill.setXYZ(i,MODEL_GREY.r,MODEL_GREY.g,MODEL_GREY.b);fill.needsUpdate=!0;
     if('needsUpdate'in M.material)M.material.needsUpdate=!0}
     updateHeatmap._lastKey=null;updateHeatmap();
     O.forEach(g=>g.children.forEach(ch=>{if(ch.userData&&ch.userData.isLabel)ch.visible=!0}));
@@ -887,7 +891,7 @@ D('fieldModeSelect').onchange=()=>{const mode=D('fieldModeSelect').value;
   else{SIMULATE_ON=!1;clearInterval(SIM_INTERVAL);SIM_INTERVAL=null;clearInterval(HEAT_INTERVAL);HEAT_INTERVAL=null;D('tbSimulate').classList.remove('active');D('presetRow').style.display='none';_pulseHotspots=null;setFieldMode(mode)}
   updateHeatmap._lastKey=null;if(PREVIEW)updateHeatmap()};
 
-D('fieldRadiusSlider').oninput=()=>{FIELD_R=parseInt(D('fieldRadiusSlider').value)||60;D('fieldRadiusLabel').textContent=FIELD_R+'mm';invalidateFieldCache();updateHeatmap._lastKey=null};
+D('fieldRadiusSlider').oninput=()=>{FIELD_R=parseInt(D('fieldRadiusSlider').value)||60;D('fieldRadiusLabel').textContent=FIELD_R+'mm';invalidateFieldCache();updateHeatmap._lastKey=null;if(PREVIEW)updateHeatmap()};
 // ══════════════ END Wendland 力场重建 ══════════════
 // ══════════════ END Wendland 力场重建 ══════════════
 D('tbReset').onclick=()=>{if(!RT||!CT||!CA)return;const b=new T.Box3().setFromObject(RT),sz=b.getSize(new T.Vector3()),md=Math.max(sz.x,sz.y,sz.z);CT.target.set(0,0,0);CA.position.set(md*.55,-md*0.8,md*.55);CA.lookAt(0,0,0);CT.update()};
@@ -895,9 +899,9 @@ D('tbEdit').onclick=()=>{E=!E;D('tbEdit').textContent=E?'编辑模式':'预览�
 D('tbPlace').onclick=()=>{P=!P;D('tbPlace').classList.toggle('active',P);if(P&&!E){E=!0;D('tbEdit').textContent='编辑模式';D('tbEdit').classList.add('active')}msg(P?'放置模式：单击曲面添加Cell；再次点击关闭':'放置模式关闭')};
 D('basketDrag').onclick=()=>{const id=getFreeId();if(id<0){msg('篮子已满','w');return}msg('Cell #'+id+' 已创建，Ctrl+Click放到曲面')};
 D('propUnit').onchange=()=>{const v=parseFloat(D('propUnit').value);if(v>0){unitMM=v;D('topUnit').textContent=unitMM+' mm/单位';updateBoxInfo();if(Object.keys(C).length===0)setDefaultsFromModel();CO();RB();refreshProps();refreshTable();msg('单位比例已更新：1模型单位='+unitMM+'mm')}else{D('propUnit').value=unitMM}};
-D('propRadius').onchange=()=>{const v=parseFloat(D('propRadius').value);if(v>0){const sl=setRadius(v);if(F>=0&&C[F]){C[F].r=sl;CO();addOrUpdateCell(F);refreshProps();refreshTable()}}else{D('propRadius').value=radius.toFixed(1);msg('半径必须大于0','w')}};
+D('propRadius').onchange=()=>{const v=parseFloat(D('propRadius').value);if(v>0){const sl=setRadius(v);if(F>=0&&C[F]){C[F].r=sl;invalidateFieldCache();updateHeatmap._lastKey=null;CO();addOrUpdateCell(F);refreshProps();refreshTable();if(PREVIEW)updateHeatmap()}}else{D('propRadius').value=radius.toFixed(1);msg('半径必须大于0','w')}};
 D('propLabel').onchange=()=>{if(F>=0&&C[F]){C[F].label=D('propLabel').value.trim();addOrUpdateCell(F);refreshProps()}};
-D('propPressure').onchange=()=>{if(F>=0&&C[F]){let v=parseFloat(D('propPressure').value);v=Number.isFinite(v)?Math.max(0,Math.min(1,v)):0;D('propPressure').value=v;C[F].pressure=v;updateHeatmap._lastKey=null;addOrUpdateCell(F);refreshProps();if(PREVIEW&&FIELD_MODE!=='simulated')updateHeatmap()}};
+D('propPressure').onchange=()=>{if(F>=0&&C[F]){let v=parseFloat(D('propPressure').value);v=Number.isFinite(v)?Math.max(0,Math.min(1,v)):0;D('propPressure').value=v;C[F].pressure=v;updateHeatmap._lastKey=null;if(PREVIEW)updateHeatmap()}};
 D('propRot').onchange=()=>{if(F>=0&&C[F]){C[F].rot=parseFloat(D('propRot').value)||0;addOrUpdateCell(F);refreshProps()}};
 D('propCollision').onchange=()=>{collisionEnabled = D('propCollision').checked; msg(collisionEnabled?'碰撞检测已开启':'碰撞检测已关闭 — Cell可重叠放置')};
 
