@@ -331,7 +331,7 @@ function BC(id){
   const ps=new T.Vector3(c.x,c.y,c.z);
   const ov=V[id]||1,io=ov>1;let col=new T.Color(0x4ec9b0),op=.72,bc=0xffffff,bo=.55;
   if(io){const sv=Math.min(1,(ov-1)/4);col=new T.Color(1,.35*(1-sv),.1*(1-sv));op=.82+sv*.12;bc=0xff4444;bo=.85}
-  const mt=new T.MeshPhongMaterial({color:col,specular:0x111,shininess:25,transparent:!0,opacity:op,side:T.DoubleSide});
+  const mt=new T.MeshPhongMaterial({color:col,specular:0x111,shininess:25,transparent:!0,opacity:op,side:T.DoubleSide,polygonOffset:!0,polygonOffsetFactor:-2,polygonOffsetUnits:-1});
   const ph=new T.Mesh(geo,mt);ph.userData={id,pch:!0};
   ph.position.copy(ps.clone().addScaledVector(nm,off));
   ph.quaternion.setFromUnitVectors(new T.Vector3(0,0,1),nm);ph.rotateZ(T.MathUtils.degToRad(c.rot||0));
@@ -748,15 +748,15 @@ function smoothScalars(scalars,n,iterations){
 }
 
 // ── 双层着色: 核心暖色斑 + 灰色过渡外圈 ──
-// 暖色单相: 灰→浅橙→橙→深红
+// 暖色单相: 灰→浅橙→橙→深红 (首色非灰, 确保可见)
 function warmHeatColor(t){
   t=Math.max(0,Math.min(1,t));
   const stops=[
-    [0.00,new T.Color(0x7f8998)],  // 模型灰 (无压力)
-    [0.15,new T.Color(0xc49585)],  // 浅暖灰褐
-    [0.40,new T.Color(0xe07050)],  // 暖橙
-    [0.70,new T.Color(0xd04030)],  // 深红
-    [1.00,new T.Color(0x8b1a1a)],  // 暗深红
+    [0.00,new T.Color(0xa89080)],  // 暖灰褐 (可见, 接近模型灰但偏暖)
+    [0.15,new T.Color(0xd08060)],  // 暖橙
+    [0.40,new T.Color(0xe05040)],  // 亮红橙
+    [0.70,new T.Color(0xc02020)],  // 深红
+    [1.00,new T.Color(0x8b1515)],  // 暗深红
   ];
   for(let i=1;i<stops.length;i++){
     if(t<=stops[i][0]){
@@ -777,27 +777,20 @@ function applyFieldColors(cellPressures){
     for(let j=s;j<e;j++){const p=cellPressures[_icell[j]]||0,w=_iwgt[j];num+=p*w;den+=w}
     if(den>1e-6)scalars[i]=num/den}
   // Step2: 邻接平滑
-  if(_adj&&_adj[0]&&_adj[0].length===n+1)smoothScalars(scalars,n,3);
-  // Step3: 双层着色 (灰色外圈→暖色核心)
-  const low=0.05,mid=0.30;
+  if(_adj&&_adj[0]&&_adj[0].length===n+1)smoothScalars(scalars,n,1);
+  // Step3: 双层着色
+  const low=0.04,mid=0.25;
   for(let k=0;k<ncv;k++){const i=_cv[k];const s=scalars[i];if(s<=0)continue;let cf=0;
     for(let j=_ioff[i];j<_ioff[i+1];j++)cf+=_iwgt[j];cf=Math.min(1,cf);
     if(cf<=0.01){col.setXYZ(i,MODEL_GREY.r,MODEL_GREY.g,MODEL_GREY.b);continue}
     if(s<low){col.setXYZ(i,MODEL_GREY.r,MODEL_GREY.g,MODEL_GREY.b);continue}
     if(s<mid){
-      // 过渡外圈: mix(灰色, 暖色, α) α随标量递增
-      const t=(s-low)/(mid-low); // 0→1 across transition zone
-      const alpha=t*cf;           // transparency increases with scalar
+      const t=(s-low)/(mid-low),alpha=t*cf*0.8;
       const heat=warmHeatColor(s);
-      col.setXYZ(i,MODEL_GREY.r+(heat.r-MODEL_GREY.r)*alpha,
-                  MODEL_GREY.g+(heat.g-MODEL_GREY.g)*alpha,
-                  MODEL_GREY.b+(heat.b-MODEL_GREY.b)*alpha);
+      col.setXYZ(i,MODEL_GREY.r+(heat.r-MODEL_GREY.r)*alpha,MODEL_GREY.g+(heat.g-MODEL_GREY.g)*alpha,MODEL_GREY.b+(heat.b-MODEL_GREY.b)*alpha);
     }else{
-      // 压力核心: mix(灰色, 暖色, cf) 饱满暖色
       const heat=warmHeatColor(s);
-      col.setXYZ(i,MODEL_GREY.r+(heat.r-MODEL_GREY.r)*cf,
-                  MODEL_GREY.g+(heat.g-MODEL_GREY.g)*cf,
-                  MODEL_GREY.b+(heat.b-MODEL_GREY.b)*cf);
+      col.setXYZ(i,MODEL_GREY.r+(heat.r-MODEL_GREY.r)*cf,MODEL_GREY.g+(heat.g-MODEL_GREY.g)*cf,MODEL_GREY.b+(heat.b-MODEL_GREY.b)*cf);
     }
   }
   col.needsUpdate=!0;M.material.vertexColors=!0;
@@ -848,19 +841,29 @@ function togglePreview(){
   PREVIEW=!PREVIEW;const fs=D('fieldSettings');
   if(PREVIEW){
     fs.style.display='block';D('tbPreview3D').classList.add('active');
-    if(M&&M.material){_origMaterial={color:M.material.color.getHex(),opacity:M.material.opacity};M.material.color.set(0xffffff);M.material.opacity=0.95}
+    // 保存材质全量属性, 预览时仅开vertexColors, 不改透明度
+    if(M&&M.material){_origMaterial={
+      color:M.material.color.getHex(),opacity:M.material.opacity,
+      transparent:M.material.transparent,depthWrite:M.material.depthWrite,
+      depthTest:M.material.depthTest,side:M.material.side,
+      blending:M.material.blending,vertexColors:M.material.vertexColors
+    }}
     updateHeatmap._lastKey=null;updateHeatmap();
     O.forEach(g=>g.children.forEach(ch=>{if(ch.userData&&ch.userData.isLabel)ch.visible=!0}));
-    
-    // 仅模拟模式需要定时器; 手动/real模式压力和缓存不变时零开销
     if(FIELD_MODE==='simulated'&&SIMULATE_ON){HEAT_INTERVAL=setInterval(updateHeatmap,500)}
     msg('力场预览 ON | R='+FIELD_R+'mm | mode='+FIELD_MODE)}
   else{
     fs.style.display='none';D('tbPreview3D').classList.remove('active');
     clearInterval(HEAT_INTERVAL);HEAT_INTERVAL=null;
     O.forEach(g=>g.children.forEach(ch=>{if(ch.userData&&ch.userData.isLabel){ch.visible=!1}}));
-    if(M&&M.material){M.material.vertexColors=!1;M.material.emissive=new T.Color(0);M.material.emissiveIntensity=0;
-      if(_origMaterial){M.material.color.set(_origMaterial.color);M.material.opacity=_origMaterial.opacity;_origMaterial=null}}
+    if(M&&M.material){
+      if(_origMaterial){M.material.color.set(_origMaterial.color);M.material.opacity=_origMaterial.opacity;
+        M.material.transparent=_origMaterial.transparent;M.material.depthWrite=_origMaterial.depthWrite;
+        M.material.depthTest=_origMaterial.depthTest;M.material.side=_origMaterial.side;
+        M.material.blending=_origMaterial.blending;M.material.vertexColors=_origMaterial.vertexColors;
+        _origMaterial=null}
+      M.material.emissive=new T.Color(0);M.material.emissiveIntensity=0;
+    }
     updateCellPreviewStyle({});HL();msg('退出力场预览')}
 }
 
@@ -1033,7 +1036,7 @@ window.pyCommand=function(cmd,data){
         SL('构建BVH...');let useAccel=!0;try{geo.computeBoundsTree()}catch(e){console.warn('BVH构建失败,使用默认raycast:',e);useAccel=!1}
         const n=geo.index?geo.index.count/3:geo.attributes.position.count/3;
         D('propTri').value=n; D('propModel').value=name||'模型'; D('sModel').textContent=name||'模型';
-        const mt=new T.MeshPhongMaterial({color:0x7f8998,specular:0x333,shininess:45,side:T.DoubleSide,transparent:!0,opacity:.92});
+        const mt=new T.MeshPhongMaterial({color:0x7f8998,specular:0x333,shininess:45,side:T.DoubleSide,transparent:!1,opacity:1});
         if(M){RT.remove(M);M.geometry.dispose()}
         M=new T.Mesh(geo,mt);M.raycast=useAccel?acceleratedRaycast:T.Mesh.prototype.raycast;RT.add(M);
         C={};F=-1;_vpos=null;invalidateFieldCache();
@@ -1231,7 +1234,7 @@ D('stlFileInput').onchange=function(e){
 function finishStandalone(geo,name,useAccel){
   if(!geo){msg('无法解析几何体','e');return}
   const n=geo.index?geo.index.count/3:geo.attributes.position.count/3;
-  const mt=new T.MeshPhongMaterial({color:0x7f8998,specular:0x333,shininess:45,side:T.DoubleSide,transparent:!0,opacity:.92});
+  const mt=new T.MeshPhongMaterial({color:0x7f8998,specular:0x333,shininess:45,side:T.DoubleSide,transparent:!1,opacity:1});
   if(M){RT.remove(M);M.geometry.dispose()}
   M=new T.Mesh(geo,mt);M.raycast=useAccel?acceleratedRaycast:T.Mesh.prototype.raycast;RT.add(M);
   C={};F=-1;_vpos=null;invalidateFieldCache();
