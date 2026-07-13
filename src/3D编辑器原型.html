@@ -287,6 +287,18 @@ function getOrCreateLabel(tex,group,ps,nm,off,id){
   spr.position.copy(ps.clone().addScaledVector(nm,off*1.2));
   return spr
 }
+function readCellNormal(c){
+  let nx=c.normal?.x ?? c.nx ?? 0;
+  let ny=c.normal?.y ?? c.ny ?? 0;
+  let nz=c.normal?.z ?? c.nz ?? 0;
+  if(!Number.isFinite(nx)||!Number.isFinite(ny)||!Number.isFinite(nz)){nx=0;ny=0;nz=1;}
+  const len=Math.sqrt(nx*nx+ny*ny+nz*nz);
+  if(len<1e-6){nx=0;ny=0;nz=1;}else{nx/=len;ny/=len;nz/=len;}
+  return{nx,ny,nz};
+}
+const CELL_RESTORE_NORMAL_DOT_MIN=0.35;
+const CELL_ATTACH_MAX_JUMP_FACTOR=1.5;
+
 function BC(id){
   if(!RT)return null;
   const c=C[id];if(!c)return null;
@@ -343,10 +355,17 @@ function BC(id){
     const centerW=localToWp(ps),maxJump=Math.max(ru*2.4,mm2u(18));
     const tree=M.geometry&&M.geometry.boundsTree;
     const lPt=new T.Vector3(),lClosest=new T.Vector3(),lr=new T.Vector3(),wn=normalToWorld(nm);
-    // Q37: 逐顶点BVH曲面投影 + 局部法线偏移
+    // 逐顶点 BVH 曲面投影 + 统一法线偏移（稳定版）
     for(let i=0;i<pa.count;i++){
       const wv=new T.Vector3(pa.getX(i),pa.getY(i),pa.getZ(i)).applyMatrix4(wM);
-      if(!tree||!tree.closestPointToPoint){const cp=closestPointOnModelWorld(wv,centerW,nm,maxJump);if(cp){lr.copy(cp.clone().addScaledVector(wn,off)).applyMatrix4(wI);pa.setXYZ(i,lr.x,lr.y,lr.z)}continue}
+      if(!tree||!tree.closestPointToPoint){
+        const cp=closestPointOnModelWorld(wv,centerW,nm,maxJump);
+        if(cp){
+          lr.copy(cp.clone().addScaledVector(wn,off)).applyMatrix4(wI);
+          pa.setXYZ(i,lr.x,lr.y,lr.z)
+        }
+        continue
+      }
       lPt.copy(M.worldToLocal(wv));
       try{tree.closestPointToPoint(lPt,lClosest,0,maxJump)}catch(e){lClosest.set(0,0,0)}
       if(lClosest.lengthSq()<1e-12)continue;
@@ -358,7 +377,7 @@ function BC(id){
     geo.computeVertexNormals();pa.needsUpdate=!0;
   }
   const g=new T.Group();g.add(ph);
-  // Q37: 外轮廓从变形后的顶点读取 (最外圈: ring=rSegs)
+  // 外轮廓从变形后的顶点读取 (最外圈: ring=rSegs)
   const periPts=[];const perimSegs=72;
   const outerBase=1+(rSegs-1)*segments; // 最外圈顶点起始索引
   for(let i=0;i<=perimSegs;i++){
@@ -370,7 +389,6 @@ function BC(id){
   const ed=new T.Line(new T.BufferGeometry().setFromPoints(periPts),new T.LineBasicMaterial({color:bc,transparent:!0,opacity:bo}));g.add(ed);
   const centerDot=new T.Mesh(new T.SphereGeometry(mm2u(Math.max(.5,radius*.03)),10,10),new T.MeshBasicMaterial({color:io?0xff4444:0x4ec9b0,transparent:!0,opacity:.95}));
   centerDot.position.copy(ps.clone().addScaledVector(nm,off*1.8));centerDot.userData={id,center:!0};g.add(centerDot);
-  // Preview label sprite (hidden until 力场预览 is on)
   getOrCreateLabel(null,g,ps,nm,off,id);
   ph.material.color.copy(col);g.userData={id};return g
 }
@@ -994,7 +1012,7 @@ window.pyCommand=function(cmd,data){
     else if(cmd==='focusCell'&&data.id>=0&&C[data.id]){F=data.id;const c=C[F];if(!CT||!CA)return;const p=localToWp(new T.Vector3(c.x,c.y,c.z));CT.target.copy(p);CA.position.set(p.x,p.y-80,p.z+50);HL();_notify()}
     else if(cmd==='getAllCells'){const all=[];for(let i=0;i<MAX;i++){const c=C[i];all.push(c?{id:i,x:u2mm(c.x).toFixed(1),y:u2mm(c.y).toFixed(1),z:u2mm(c.z).toFixed(1),radius:c.r.toFixed(1),area:cellSurfaceArea(c).toFixed(1),overlap:V[i]||0}:null)}sendBridge('allCells',all)}
     else if(cmd==='exportCells'){const cells=[];for(const c of Object.values(C))cells.push({id:c.id,center_mm:{x:+u2mm(c.x).toFixed(4),y:+u2mm(c.y).toFixed(4),z:+u2mm(c.z).toFixed(4)},normal:{x:+c.nx.toFixed(4),y:+c.ny.toFixed(4),z:+c.nz.toFixed(4)},radius_mm:c.r,rotation_deg:c.rot||0,label:c.label||'',pressure:c.pressure||0});sendBridge('exportCells',{cells:cells,total_points:MAX,unit_mm:unitMM})}
-    else if(cmd==='importCells'&&Array.isArray(data)){snapShot();C={};data.forEach(c=>{if(c.id>=0&&c.id<MAX)C[c.id]={x:mm2u((c.center_mm||c.center_3d||{x:c.x||0}).x),y:mm2u((c.center_mm||c.center_3d||{y:c.y||0}).y),z:mm2u((c.center_mm||c.center_3d||{z:c.z||0}).z),nx:c.nx||c.normal?.x||0,ny:c.ny||c.normal?.y||0,nz:c.nz||c.normal?.z||1,r:c.radius_mm||c.radius||(c.width_mm||radius)/2,rot:c.rot||c.rotation_deg||0,id:c.id,label:c.label||'',pressure:parseFloat(c.pressure)||0}});F=-1;invalidateFieldCache();updateHeatmap._lastKey=null;CO();RB();refreshBasket();refreshTable();refreshProps();_notify()}
+    else if(cmd==='importCells'&&Array.isArray(data)){snapShot();C={};data.forEach(c=>{if(c.id>=0&&c.id<MAX){const n=readCellNormal(c);C[c.id]={x:mm2u((c.center_mm||c.center_3d||{x:c.x||0}).x),y:mm2u((c.center_mm||c.center_3d||{y:c.y||0}).y),z:mm2u((c.center_mm||c.center_3d||{z:c.z||0}).z),nx:n.nx,ny:n.ny,nz:n.nz,r:c.radius_mm||c.radius||(c.width_mm||radius)/2,rot:c.rot||c.rotation_deg||0,id:c.id,label:c.label||'',pressure:parseFloat(c.pressure)||0}}});F=-1;invalidateFieldCache();updateHeatmap._lastKey=null;CO();RB();refreshBasket();refreshTable();refreshProps();_notify()}
     else if(cmd==='loadStl'&&(data.url||data.b64)){
       // Item2: 停止所有模拟循环 + 递增project sessionId
       stopAllLoops();_sessionId++;const thisSession=_sessionId;
@@ -1097,19 +1115,17 @@ window.pyCommand=function(cmd,data){
               let distToSurf=0;
               if(mbCheck&&M&&M.geometry&&M.geometry.boundsTree&&M.geometry.boundsTree.closestPointToPoint){
                 const qp=new T.Vector3(cx,cy,cz),cp=new T.Vector3();
+                let hitFace=false;
                 try{M.geometry.boundsTree.closestPointToPoint(qp,cp,0,Infinity)}catch(e){}
-                if(cp.lengthSq()>1e-12)distToSurf=qp.distanceTo(cp);
+                if(Number.isFinite(cp.x)&&Number.isFinite(cp.y)&&Number.isFinite(cp.z)){distToSurf=qp.distanceTo(cp);hitFace=distToSurf<Infinity;}
               }
               if(mdiagCheck<Infinity&&distToSurf>mdiagCheck*3){failed++;return}
-              const nx=c.normal?.x||c.nx||0,ny=c.normal?.y||c.ny||0,nz=c.normal?.z||c.nz||1;
-              C[c.id]={x:cx,y:cy,z:cz,nx,ny,nz,r:c.radius_mm||c.radius||(c.width_mm||10)/2,rot:c.rotation_deg||c.rot||0,id:c.id,label:c.label||'',pressure:parseFloat(c.pressure)||0};
-              addOrUpdateCell(c.id);const g=G[c.id];
-              if(g&&g.parent===CG){const ph=g.children.find(ch=>ch.userData&&ch.userData.pch);if(ph&&ph.geometry&&ph.geometry.attributes.position&&ph.geometry.attributes.position.count>0){if(Number.isFinite(ph.geometry.attributes.position.getX(0))){restored++;return}}}
-              if(G[c.id]){CG.remove(G[c.id]);O=O.filter(o=>o!==G[c.id]);delete G[c.id]}
-              delete C[c.id];failed++;
+              const rn=readCellNormal(c);
+              C[c.id]={x:cx,y:cy,z:cz,nx:rn.nx,ny:rn.ny,nz:rn.nz,r:c.radius_mm||c.radius||(c.width_mm||10)/2,rot:c.rotation_deg||c.rot||0,id:c.id,label:c.label||'',pressure:parseFloat(c.pressure)||0};
+              restored++;
             }catch(e){console.warn('[rc #'+c.id+']',e);failed++}
           });
-          CO();HL();updateOverlapUI();refreshBasket();refreshTable();refreshProps();
+          CO();HL();updateOverlapUI();RB();refreshBasket();refreshTable();refreshProps();
           Object.keys(C).slice(0,3).forEach(id=>{const c=C[id];console.log('[restore-verify] #'+id+' local=('+c.x.toFixed(4)+','+c.y.toFixed(4)+','+c.z.toFixed(4)+')')});
           console.log('[restoreCells] restored='+restored+' failed='+failed+' raw='+data.cells.length+' coord='+coordSpace+' unit='+unitMM);
           if(restored===0&&data.cells.length>0)msg('Cell恢复失败','w');else if(failed>0)msg(failed+'个Cell恢复失败','w');
@@ -1181,9 +1197,10 @@ window.pyCommand=function(cmd,data){
       F=-1;
       data.forEach(c=>{
         const id=c.id??0;
-        C[id]={
+      const n=readCellNormal(c);
+      C[id]={
           x:mm2u((c.center_mm||c.center_3d||{x:0}).x), y:mm2u((c.center_mm||c.center_3d||{y:0}).y), z:mm2u((c.center_mm||c.center_3d||{z:0}).z),
-          nx:c.normal?.x||c.nx||0, ny:c.normal?.y||c.ny||0, nz:c.normal?.z||c.nz||1,
+          nx:n.nx, ny:n.ny, nz:n.nz,
           r:c.radius_mm||c.radius||(c.width_mm||c.side||radius)/2,
           rot:c.rotation_deg||c.rot||0, id:id, label:c.label||'',pressure:c.pressure||0
         };
@@ -1285,7 +1302,8 @@ D('jsonFileInput').onchange=function(e){
       F=-1;
       cells.forEach(c=>{
         const id=c.id??0;
-        C[id]={x:mm2u((c.center_mm||c.center_3d||{x:0}).x),y:mm2u((c.center_mm||c.center_3d||{y:0}).y),z:mm2u((c.center_mm||c.center_3d||{z:0}).z),nx:c.normal?.x||c.nx||0,ny:c.normal?.y||c.ny||0,nz:c.normal?.z||c.nz||1,r:c.radius_mm||c.radius||(c.width_mm||radius)/2,rot:c.rotation_deg||c.rot||0,id:id,label:c.label||'',pressure:c.pressure||0};
+      const n=readCellNormal(c);
+      C[id]={x:mm2u((c.center_mm||c.center_3d||{x:0}).x),y:mm2u((c.center_mm||c.center_3d||{y:0}).y),z:mm2u((c.center_mm||c.center_3d||{z:0}).z),nx:n.nx,ny:n.ny,nz:n.nz,r:c.radius_mm||c.radius||(c.width_mm||radius)/2,rot:c.rotation_deg||c.rot||0,id:id,label:c.label||'',pressure:c.pressure||0};
       });
       invalidateFieldCache();updateHeatmap._lastKey=null;
       CO();RB();refreshBasket();refreshTable();refreshProps();_notify();
