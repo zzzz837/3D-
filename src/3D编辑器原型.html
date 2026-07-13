@@ -847,7 +847,9 @@ function togglePreview(){
       transparent:M.material.transparent,depthWrite:M.material.depthWrite,
       depthTest:M.material.depthTest,side:M.material.side,
       blending:M.material.blending,vertexColors:M.material.vertexColors
-    }}
+    };
+    M.material.side=T.FrontSide;M.material.vertexColors=!0;
+    if('needsUpdate'in M.material)M.material.needsUpdate=!0}
     updateHeatmap._lastKey=null;updateHeatmap();
     O.forEach(g=>g.children.forEach(ch=>{if(ch.userData&&ch.userData.isLabel)ch.visible=!0}));
     if(FIELD_MODE==='simulated'&&SIMULATE_ON){HEAT_INTERVAL=setInterval(updateHeatmap,500)}
