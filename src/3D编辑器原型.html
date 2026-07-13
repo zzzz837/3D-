@@ -112,6 +112,7 @@ body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:#1e1e1e;colo
 !function(){function t(o,r){if(!o.at){var n=typeof o;Object.defineProperty(o,'at',{value:function(i){i=Math.trunc(i)||0;if(i<0)i+=this.length;return i<0||i>=this.length?r:this[i]},writable:!0,configurable:!0})}}t(Array.prototype);t(String.prototype);t(Int8Array.prototype,0);t(Uint8Array.prototype,0);t(Uint8ClampedArray.prototype,0);t(Int16Array.prototype,0);t(Uint16Array.prototype,0);t(Int32Array.prototype,0);t(Uint32Array.prototype,0);t(Float32Array.prototype,0);t(Float64Array.prototype,0)}();</script>
 <script type="module">
 import*as T from'./lib/three/build/three.module.js';import{OrbitControls}from'./lib/three/examples/jsm/controls/OrbitControls.js';
+import*as BufferGeometryUtils from'./lib/three/examples/jsm/utils/BufferGeometryUtils.js';
 import{STLLoader}from'./lib/three/examples/jsm/loaders/STLLoader.js';
 import{OBJLoader}from'./lib/three/examples/jsm/loaders/OBJLoader.js';
 import{GLTFLoader}from'./lib/three/examples/jsm/loaders/GLTFLoader.js';
@@ -182,7 +183,72 @@ function closestPointOnModelWorld(worldPoint,centerWorld,centerNormal,maxJump){
   const localPoint=M.worldToLocal(worldPoint.clone()),localClosest=new T.Vector3();
   try{tree.closestPointToPoint(localPoint,localClosest,0,maxJump||Infinity);const p=M.localToWorld(localClosest.clone());if(p.distanceTo(worldPoint)>maxJump)return null;return p}catch(e){return null}
 }
+function tessellateGeometry(geo, iterations, maxTriangles) {
+  for (let iter = 0; iter < iterations; iter++) {
+    const pos = geo.attributes.position;
+    const idx = geo.index;
+    if (!idx) {
+      console.warn('[tessellate] non-indexed geometry, making indexed first');
+      const merged = BufferGeometryUtils.mergeVertices(geo, 1e-5);
+      if (merged.index) { geo = merged; }
+      else { console.warn('[tessellate] cannot create index, skipping'); return geo; }
+    }
+    const idxArr = geo.index;
+    const nTris = idxArr.count / 3;
+    if (nTris * 4 > maxTriangles) {
+      console.warn('[tessellate] would exceed maxTriangles=' + maxTriangles + ' at iter=' + iter + ', stopping');
+      break;
+    }
+    const posArr = geo.attributes.position;
+    const newPos = [];
+    const newIdx = [];
+    const midCache = new Map();
+    const key = (a, b) => Math.min(a, b) * posArr.count + Math.max(a, b);
+    const midpoint = (a, b) => {
+      const k = key(a, b);
+      if (midCache.has(k)) return midCache.get(k);
+      const vidx = newPos.length / 3;
+      newPos.push((posArr.getX(a) + posArr.getX(b)) / 2, (posArr.getY(a) + posArr.getY(b)) / 2, (posArr.getZ(a) + posArr.getZ(b)) / 2);
+      midCache.set(k, vidx);
+      return vidx;
+    };
+    for (let i = 0; i < posArr.count; i++) newPos.push(posArr.getX(i), posArr.getY(i), posArr.getZ(i));
+    for (let t = 0; t < nTris; t++) {
+      const a = idxArr.getX(t * 3), b = idxArr.getX(t * 3 + 1), c = idxArr.getX(t * 3 + 2);
+      const ab = midpoint(a, b), bc = midpoint(b, c), ca = midpoint(c, a);
+      newIdx.push(a, ab, ca, b, bc, ab, c, ca, bc, ab, bc, ca);
+    }
+    const ng = new T.BufferGeometry();
+    ng.setAttribute('position', new T.BufferAttribute(new Float32Array(newPos), 3));
+    ng.setIndex(newIdx);
+    geo = ng;
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+
+function computeMaxEdgeMM(geo) {
+  const pos = geo.attributes.position;
+  const idx = geo.index;
+  const nTris = idx ? idx.count / 3 : pos.count / 3;
+  let maxE = 0;
+  const va = new T.Vector3(), vb = new T.Vector3();
+  const edge = (ia, ib) => {
+    va.set(pos.getX(ia), pos.getY(ia), pos.getZ(ia));
+    vb.set(pos.getX(ib), pos.getY(ib), pos.getZ(ib));
+    return va.distanceTo(vb);
+  };
+  for (let t = 0; t < nTris; t++) {
+    const a = idx ? idx.getX(t * 3) : t * 3;
+    const b = idx ? idx.getX(t * 3 + 1) : t * 3 + 1;
+    const c = idx ? idx.getX(t * 3 + 2) : t * 3 + 2;
+    maxE = Math.max(maxE, edge(a, b), edge(b, c), edge(c, a));
+  }
+  return u2mm(maxE);
+}
+
 function buildSurfaceIndex(){if(!M)return;SURF=[];const triCount=M.geometry.index?M.geometry.index.count/3:M.geometry.attributes.position.count/3,stride=Math.max(1,Math.ceil(triCount/12000));const N=new T.Vector3(),A=new T.Vector3(),B=new T.Vector3(),C=new T.Vector3();for(let t=0,off=0;t<triCount;t++,off+=3){if(t%stride!==0)continue;let i0,i1,i2;if(M.geometry.index){i0=M.geometry.index.getX(off);i1=M.geometry.index.getX(off+1);i2=M.geometry.index.getX(off+2)}else{i0=off;i1=off+1;i2=off+2}A.fromBufferAttribute(M.geometry.attributes.position,i0).applyMatrix4(M.matrixWorld);B.fromBufferAttribute(M.geometry.attributes.position,i1).applyMatrix4(M.matrixWorld);C.fromBufferAttribute(M.geometry.attributes.position,i2).applyMatrix4(M.matrixWorld);N.subVectors(B,A).cross(new T.Vector3().subVectors(C,A)).normalize();const ctr=new T.Vector3().addVectors(A,B).add(C).divideScalar(3);SURF.push({a:A.clone(),b:B.clone(),c:C.clone(),center:ctr,normal:N.clone()})}}
+
 function projectToSurfaceLocal(wv,worldDir,cast){const ro=new T.Vector3();ro.copy(wv).addScaledVector(worldDir,cast);RY.set(ro,worldDir.clone().negate());let h=RY.intersectObject(M,!1);if(h.length)return wpToLocal(h[0].point);ro.copy(wv).addScaledVector(worldDir,-cast);RY.set(ro,worldDir);h=RY.intersectObject(M,!1);if(h.length)return wpToLocal(h[0].point);return null}
 
 // STL — 启动时不再自动加载，通过 Python Bridge 的 loadStl 命令加载
@@ -948,6 +1014,17 @@ window.pyCommand=function(cmd,data){
       const setupModel=(geo,name)=>{
         if(!geo){sendBridge('error',{msg:'模型解析失败: 几何体为空'});msg('模型加载失败','e');return}
         geo.computeVertexNormals();
+        const rawFaces = geo.index ? geo.index.count / 3 : geo.attributes.position.count / 3;
+        const maxEdgeMM = computeMaxEdgeMM(geo);
+        const targetEdgeMM = FIELD_R / 4;
+        const needTessellation = maxEdgeMM > targetEdgeMM && rawFaces < 80000;
+        let tessIterations = 0;
+        if (needTessellation) {
+          tessIterations = Math.min(3, Math.ceil(Math.log2(maxEdgeMM / Math.max(targetEdgeMM, 1))));
+          const maxAllowed = 200000;
+          geo = tessellateGeometry(geo, tessIterations, maxAllowed);
+          console.log('[tessellate] applied ' + tessIterations + ' iterations | maxEdge ' + maxEdgeMM.toFixed(1) + '→' + computeMaxEdgeMM(geo).toFixed(1) + 'mm | faces ' + rawFaces + '→' + (geo.index ? geo.index.count / 3 : geo.attributes.position.count / 3));
+        }
         // Q36: 根据Python端真实降采样结果显示
         const origFaces=geo.index?geo.index.count/3:geo.attributes.position.count/3;
         if(data.decimated){D('optRow').style.display='flex';D('propOpt').value=data.original_faces+'→'+data.actual_faces+'面 (已优化)';msg('降采样: '+data.original_faces+'→'+data.actual_faces+'面')}
