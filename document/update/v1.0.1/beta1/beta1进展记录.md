@@ -1,92 +1,139 @@
 # v1.0.1 进展记录
 
-> **日期**: 2026-07-09 | **版本**: v1.0.1 稳定演示版
+> **日期**: 2026-07-13 | **阶段**: beta1 补充修复同步版
 
 ---
 
 ## 背景
 
-v1.0.1 基于 beta4 已验收能力，目标：删减未成熟功能、优化大模型体验、提升模拟演示效果。
+本轮工作是在当前回滚基线之上，围绕以下三类问题持续修复并反复验证：
+
+1. 低面片模型力场伪影；
+2. 力场预览颜色、透明度与前后表面显示问题；
+3. `.3dlp` 工程重新打开后，低面片/STP 模型上的 Cell 恢复异常（错位、嵌入、塌缩、聚集）。
+
+本轮中途多次尝试过高低面片双策略、颜色映射、显示细分等方向，最终保留下来的代码以**稳定性优先**：恢复 `BC()` 稳定版、保留当前低面片显示细分方案，并重点修复 Cell 恢复链路。
 
 ---
 
-## 一、已解决 (16项)
+## 一、本轮实际已完成
 
-### 功能
+### A. 力场颜色与预览显示
 
-| # | 需求 | 方案 |
-|---|------|------|
-| F1 | 删除导入数据模式 | real mode / importFieldJSON / _importedField / tbImportField / 菜单项全面清理 |
-| F2 | 压力归一化 0~1 | 删除 pressureMin/Max UI+变量+readPressureRange；applyFieldColors 硬编码 [0,1] |
-| F3 | propPressure 输入 | placeholder "0~1"，自动 clamp [0,1]，保存为 0~1 小数 |
-| F4 | 模拟压力三预设 | Uniform(0.2~0.8) / Wave(0.15~0.85) / Pulse(0.1~1.0)，全部输出到 `C[id].pressure` |
-| F5 | 模拟预设 UI | 独立下拉框，仅模拟模式显示，默认 Wave |
-| F6 | 帧率优化 | SIM_INTERVAL_MS=40 (25FPS)，`performance.now()` 计时 |
-| F7 | 大模型提示 | 面数 >50万 显示"大模型，性能优化已启用" |
-| F8 | 打开工程不自动预览 | loadStl 流程中不调用 togglePreview，保持编辑状态 |
+| 编号 | 问题 | 处理结果 |
+|------|------|----------|
+| A1 | 力场颜色过深、不同压力级别不直观 | 力场颜色切换为 `jetColor()`（蓝→青→绿→黄→橙→红→暗红） |
+| A2 | 开启力场预览后模型整体变暗 | 定位到 `vertexColors × material.color` 相乘导致整体变暗；预览时材质色改为 `0xffffff` |
+| A3 | 开启预览但无 Cell 时模型底色异常 | 开启预览时主动初始化颜色缓冲区为 `MODEL_GREY` |
+| A4 | 力场预览时可看到背面力场穿透 | 预览阶段材质 `side = T.FrontSide`，只显示当前表面 |
+| A5 | 手动压力预览下，移动 Cell / 调整 Cell 半径 / 调整力场半径后热图不刷新 | 在拖拽、`propRadius`、`fieldRadiusSlider` 变化后补 `updateHeatmap()` |
+| A6 | 手动压力输入值被覆盖或不稳定 | 精简 `propPressure.onchange`，只保留 pressure 更新和热图刷新，避免 UI 回写干扰 |
 
-### Bug 修复
+### B. 低面片模型力场显示优化
 
-| # | 问题 | 修复 |
-|---|------|------|
-| B1 | BVH 失败致 Cell/力场异常 | `computeBoundsTree()` 加 try/catch，失败→回退 `THREE.Mesh.prototype.raycast` |
-| B2 | 切换项目残留 | loadStl 入口轻量清理 (timers/preview/M/cache)，保留 unitMM/radius/MAX |
-| B3 | .3dlp 模型丢失排查 | Python + JS 全链路日志 (文件/cache/URL/fetch/parse/setup) |
-| B4 | JS 失败无提示 | `sendBridge('error')` → Python `QMessageBox.warning` 弹窗 |
-| B5 | clearGapSpheres 报错 | 删除无效调用 |
-| B6 | STP 力场不显示 | BVH 容错修复，力场链路 `Cell→pressure→Wendland→vertexColor` 统一 |
-| B7 | STP Cell 贴合异常 | BVH 回退原生 raycast 确保射线正确 |
-| B8 | 导入数据残留 UI | 按钮/隐藏input/菜单/select option 全部删除 |
+| 编号 | 问题 | 处理结果 |
+|------|------|----------|
+| B1 | 面片数少时大三角内插值导致力场伪影重 | 对低面片模型在加载阶段创建显示用细分网格（仅 HTML 侧） |
+| B2 | 细分后细分显示网格与原始保存/拾取数据冲突 | 当前方案只改变显示几何体，不改 Python 保存格式 |
 
-### 回归保护
+### C. `.3dlp` 工程恢复 / Cell 恢复链路
 
-| 模块 | 状态 |
-|------|------|
-| Wendland C2 核函数 | 不改 |
-| CSR Influence Cache | 不改 |
-| _cv 覆盖顶点遍历 | 不改 |
-| 手动压力输入 | 字段独立 |
-| pressure 保存/恢复 | 完整保留 |
-| 力场半径 slider | 不变 |
-| Jet colormap | 不变 |
+| 编号 | 问题 | 处理结果 |
+|------|------|----------|
+| C1 | Cell 法线读取用 `||` 导致 0 分量被覆盖 | 增加 `readCellNormal(c)`，统一改为 `??` + `Number.isFinite` + normalize |
+| C2 | 工程恢复时每个 Cell 重建两次 | 恢复流程改为先恢复 `C` 数据，结束后统一 `RB()` 一次 |
+| C3 | 工程恢复后 Cell 变成小点 | 最终定位是 `BC()` 被前一轮改坏，已整体恢复到稳定版 |
+| C4 | 恢复后低面片 Cell 聚到一块 | 移除恢复阶段“中心 snap 到最近表面”的强吸附逻辑 |
+| C5 | 恢复后部分 Cell 半嵌入模型 | 仍未彻底解决，见“当前遗留” |
 
 ---
 
-## 二、测试
+## 二、关键技术判断（本轮结论）
 
+### 1. `vertexColors` 变暗的真正原因
+
+不是着色算法本身，而是：
+
+```text
+material.color × geometry.attributes.color
 ```
+
+在预览时，若材质色仍是 `0x7f8998`，而顶点色缓冲区也写入 `0x7f8998`，最终显示会变暗约 4 倍。
+
+**修复方式**：预览开启时把材质色改为 `0xffffff`，关闭时恢复。
+
+### 2. Cell 变成点的真正原因
+
+不是保存/恢复链路本身，而是前一轮修改 `BC()` 时：
+
+- 改坏了逐顶点投影；
+- 缩小了 `maxJump`；
+- 并把投影失败点错误写为统一原点；
+
+导致圆盘顶点塌缩。现已回退到稳定版 `BC()`。
+
+### 3. 当前 `.3dlp` 恢复异常的真实边界
+
+高面片模型恢复正常，低面片/STP 模型恢复异常，说明问题已从“通用保存/读取错误”收敛为：
+
+> **低面片模型上，Cell 中心和法线恢复后重新贴合显示网格时仍存在偏差。**
+
+---
+
+## 三、当前代码中真正保留的核心修复
+
+只保留以下已证明有效、且不会引入新主问题的代码方向：
+
+- `readCellNormal()` 统一读取 Cell 法线；
+- 恢复流程只写 `C` 数据，最后统一 `RB()`；
+- `BC()` 恢复为稳定版；
+- 力场颜色改为 `jetColor()`；
+- 预览时材质色改白；
+- 预览时颜色缓冲区初始化为 `MODEL_GREY`；
+- 预览时 `FrontSide` 阻止背面穿透；
+- 交互变化后即时刷新 `updateHeatmap()`；
+- 低面片显示细分保留。
+
+---
+
+## 四、当前遗留
+
+| 编号 | 问题 | 当前状态 | 备注 |
+|------|------|----------|------|
+| L1 | `.3dlp` 重新打开后低面片/STP 模型上的 Cell 仍可能半嵌入模型、不完全贴合 | ❌ 未彻底解决 | 高面片正常，低面片恢复仍异常，问题已收缩到 Cell 恢复贴合链路 |
+| L2 | 高面片 STL（~150万面）导入/预览稳定性 | ⚠ 未继续推进 | 本轮未再处理超大 STL 主线程问题 |
+
+---
+
+## 五、测试
+
+```text
 45/45 passed
-  test_force_field: 29 原有 + 9 模拟预设 (Uniform/Wave/Pulse) + 7 test_main
+```
+
+测试命令：
+
+```powershell
+D:\Anaconda\envs\3d-editor\python.exe -m pytest src/tests/test_main.py src/tests/test_force_field.py -v
 ```
 
 ---
 
-## 三、改动文件
+## 六、改动文件（本轮）
 
 | 文件 | 说明 |
 |------|------|
-| `src/3D编辑器原型.html` | v1.0.1 全部 JS 改动 (~120行) |
-| `src/main.py` | Python 日志 + 错误弹窗 (~15行) |
-| `src/tests/test_force_field.py` | 9 项模拟预设测试 (~93行) |
-| `document/update/v1.0.1/版本需求.md` | v1.0.1 需求文档 |
-| `document/update/v1.0.1/问题清单.md` | Q1-Q24 问题清单 + 用户答复 |
+| `src/3D编辑器原型.html` | 本轮所有有效修改均集中在此文件 |
+| `document/update/v1.0.1/beta1/问题清单.md` | 补充问题答复与方向确认 |
+| `document/update/v1.0.1/beta1/beta1进展记录.md` | 本轮修复结果同步 |
+| `document/update/v1.0.1/beta1/v1.0.1进展记录.md` | 本轮修复结果同步 |
 
 ---
 
-## 四、已知遗留 (2项)
+## 七、下一步建议（文档记录，不自动实施）
 
-| # | 问题 | 现象 | 排查方向 |
-|---|------|------|---------|
-| **L1** | 大面片 STL (~150万面) 导入失败 | 新建项目或打开 .3dlp 均无法加载大模型 | 可能 STLLoader.parse 主线程超时/内存不足；需增加超时提示或分片解析 |
-| **L2** | STP 模型力场预览不显示热力图 | STP 导入后 Cell 位置正常但点"力场预览"无热力图 | 可能力场链路中 M/mesh/C/cache 初始化不完整；需对比 STL 流程排查 |
+下一轮若继续修低面片/STP 工程恢复问题，建议只聚焦：
 
----
-
-## 五、v1.0.1 未开发范围 (by design)
-
-- 真实 ADC 接入
-- CSV/JSON 数据导入
-- 时间序列回放 / 时间轴
-- MLS / Graph Laplacian
-- GPU Shader 重构 / WebGPU / 多线程
-- 降采样 (SimplifyModifier 已移除，待后续)
+1. 低面片模型恢复后 Cell 的中心与法线重新绑定；
+2. 恢复后 Cell 的局部曲面贴合方式；
+3. 必要时为工程恢复保留表面锚点信息，而不再只依赖 `center_mm + normal`。
