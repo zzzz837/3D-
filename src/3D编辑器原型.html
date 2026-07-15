@@ -762,7 +762,7 @@ function smoothScalars(scalars,n,iterations){
         }
         const w=nWeight/Math.max(distSq,1e-9);wSum+=w;sum+=src[nb]*w;
       }
-      if(wSum>0)scalars[i]=src[i]*0.7+(sum/wSum)*0.3;
+      if(wSum>0)scalars[i]=src[i]*0.88+(sum/wSum)*0.12;
     }
   }
 }
@@ -798,19 +798,20 @@ function applyFieldColors(cellPressures){
     if(den>1e-6)scalars[i]=num/den}
   // Step2: 邻接平滑
   if(_adj&&_adj[0]&&_adj[0].length===n+1)smoothScalars(scalars,n,1);
-  // Step3: 双层着色
+  // Step3: 双层着色 + 覆盖度影响
   const low=0.04,mid=0.25;
   for(let k=0;k<ncv;k++){const i=_cv[k];const s=scalars[i];if(s<=0)continue;let cf=0;
     for(let j=_ioff[i];j<_ioff[i+1];j++)cf+=_iwgt[j];cf=Math.min(1,cf);
     if(cf<=0.01){col.setXYZ(i,MODEL_GREY.r,MODEL_GREY.g,MODEL_GREY.b);continue}
     if(s<low){col.setXYZ(i,MODEL_GREY.r,MODEL_GREY.g,MODEL_GREY.b);continue}
+    const eff=s*0.42+cf*0.58;
     if(s<mid){
-      const t=(s-low)/(mid-low),alpha=t*cf*0.6;
-      const heat=jetColor(s);
+      const t=(s-low)/(mid-low),alpha=t*cf*0.88;
+      const heat=jetColor(Math.max(0,Math.min(1,eff)));
       col.setXYZ(i,MODEL_GREY.r+(heat.r-MODEL_GREY.r)*alpha,MODEL_GREY.g+(heat.g-MODEL_GREY.g)*alpha,MODEL_GREY.b+(heat.b-MODEL_GREY.b)*alpha);
     }else{
-      const heat=jetColor(s);
-      col.setXYZ(i,MODEL_GREY.r+(heat.r-MODEL_GREY.r)*cf*0.65,MODEL_GREY.g+(heat.g-MODEL_GREY.g)*cf*0.65,MODEL_GREY.b+(heat.b-MODEL_GREY.b)*cf*0.65);
+      const heat=jetColor(Math.max(0,Math.min(1,eff)));
+      col.setXYZ(i,MODEL_GREY.r+(heat.r-MODEL_GREY.r)*cf*0.95,MODEL_GREY.g+(heat.g-MODEL_GREY.g)*cf*0.95,MODEL_GREY.b+(heat.b-MODEL_GREY.b)*cf*0.95);
     }
   }
   col.needsUpdate=!0;M.material.vertexColors=!0;
