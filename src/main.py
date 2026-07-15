@@ -137,6 +137,14 @@ class NewProjectDialog(QDialog):
         self.channels_spin.setToolTip("传感器通道数（≥1，无上限）")
         layout.addRow("传感器通道数:", self.channels_spin)
 
+        self.radius_spin = QDoubleSpinBox()
+        self.radius_spin.setRange(0.01, 100.0)
+        self.radius_spin.setValue(1.0)
+        self.radius_spin.setDecimals(2)
+        self.radius_spin.setSuffix(" cm")
+        self.radius_spin.setToolTip("Cell 圆形触点的半径")
+        layout.addRow("Cell 半径:", self.radius_spin)
+
         model_row = QWidget()
         model_hl = QHBoxLayout(model_row)
         model_hl.setContentsMargins(0, 0, 0, 0)
@@ -151,12 +159,13 @@ class NewProjectDialog(QDialog):
         model_hl.addWidget(browse_btn)
         layout.addRow("模型文件:", model_row)
 
-        self.unit_spin = QDoubleSpinBox()
-        self.unit_spin.setRange(0.001, 100000.0)
-        self.unit_spin.setValue(1.0)
-        self.unit_spin.setDecimals(3)
-        self.unit_spin.setToolTip("1个模型单位 = 多少mm。导入后自动检测，可手动覆盖")
-        layout.addRow("单位比例\n(mm/单位):", self.unit_spin)
+        self.real_height = QDoubleSpinBox()
+        self.real_height.setRange(0, 10000.0)
+        self.real_height.setValue(0)
+        self.real_height.setDecimals(1)
+        self.real_height.setSuffix(" cm")
+        self.real_height.setToolTip("模型最长边的真实长度。填0=自动判断，填数值=按此缩放整个模型和Cell")
+        layout.addRow("模型最长边:", self.real_height)
 
         btn_box = QDialogButtonBox()
         ok_btn = QPushButton("确定")
@@ -199,7 +208,8 @@ class NewProjectDialog(QDialog):
             "name": self.name_edit.text().strip(),
             "channels": self.channels_spin.value(),
             "model_path": self._model_path,
-            "unit_mm": self.unit_spin.value(),
+            "real_height": self.real_height.value() * 10,
+            "cell_radius": self.radius_spin.value() * 10,
         }
 
 
@@ -562,7 +572,8 @@ class MainWindow(QMainWindow):
             "name": model_name,
             "format": fmt,
             "total_points": info["channels"],
-            "unit_mm": info.get("unit_mm", 1.0),
+            "real_height": info.get("real_height", 0),
+            "cell_radius": info.get("cell_radius", 10.0),
             "decimated": decimated,
             "original_faces": original_faces,
             "actual_faces": actual_faces,

@@ -55,6 +55,7 @@ body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:#1e1e1e;colo
 <div class="toolbar">
   <button id="tbPreview3D">力场预览</button>
   <button id="tbSimulate">模拟压力</button>
+  <button id="tbExitPreview" style="background:#a04030">退出预览</button>
   <button id="tbPlace">放置模式</button>
   <button id="tbWire">线框</button>
   <button id="tbReset">重置视角</button>
@@ -81,13 +82,12 @@ body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:#1e1e1e;colo
       <div class="field"><label>曲面</label><input class="ro" value="—" readonly></div>
       <div class="field"><label>面数</label><input class="ro" value="加载中..." id="propTri" readonly></div>
       <div class="field" id="optRow" style="display:none"><label>模型优化</label><input class="ro" value="—" readonly id="propOpt" style="color:#4ec9b0"></div>
-      <div class="field"><label>包围盒</label><input class="ro" value="—" id="propBox" readonly></div>
-      <div class="field"><label>单位比例</label><input value="1" id="propUnit"><span class="unit">mm/单位</span></div></div>
+      <div class="field"><label>包围盒</label><input class="ro" value="—" id="propBox" readonly></div></div>
     <div class="group"><h3 style="color:#FFD700;font-size:12px;margin-bottom:6px">选中 Cell <span id="selLabel" style="color:#888">(无)</span></h3>
       <div class="field"><label>ID</label><input class="ro" value="—" readonly id="propId"></div>
-      <div class="field"><label>X</label><input class="ro" value="—" readonly id="propX"><span class="unit">mm</span></div>
-      <div class="field"><label>Y</label><input class="ro" value="—" readonly id="propY"><span class="unit">mm</span></div>
-      <div class="field"><label>Z</label><input class="ro" value="—" readonly id="propZ"><span class="unit">mm</span></div>
+      <div class="field"><label>X</label><input value="0" id="propX"><span class="unit">mm</span></div>
+      <div class="field"><label>Y</label><input value="0" id="propY"><span class="unit">mm</span></div>
+      <div class="field"><label>Z</label><input value="0" id="propZ"><span class="unit">mm</span></div>
       <div class="field"><label>Nx</label><input class="ro" value="—" readonly id="propNx"></div>
       <div class="field"><label>Ny</label><input class="ro" value="—" readonly id="propNy"></div>
       <div class="field"><label>Nz</label><input class="ro" value="—" readonly id="propNz"></div>
@@ -144,8 +144,9 @@ try{
   SC=new T.Scene();SC.background=new T.Color(0x1a1a1e);
   CA=new T.PerspectiveCamera(45,2,.1,1e5);CA.position.set(100,-300,200);
   CT=new OrbitControls(CA,R.domElement);CT.enableDamping=!1;
-  SC.add(new T.AmbientLight(0x566070,2.2));
-  const dirLight=new T.DirectionalLight(0xffffff,2.6);dirLight.position.set(300,-400,500);SC.add(dirLight);
+  SC.add(new T.AmbientLight(0x8899aa,3.5));
+  const dirLight=new T.DirectionalLight(0xffffff,1.8);dirLight.position.set(300,-400,500);SC.add(dirLight);
+  const backLight=new T.DirectionalLight(0x8899bb,1.8);backLight.position.set(-300,400,-500);SC.add(backLight);
   SC.position.set(0,0,0);SC.rotation.set(0,0,0);SC.scale.set(1,1,1);
   RT=new T.Group();SC.add(RT);
   RY=new T.Raycaster();
@@ -172,8 +173,13 @@ function normalToLocal(n){const q=new T.Quaternion();RT.getWorldQuaternion(q);re
 function normalToWorld(n){const q=new T.Quaternion();RT.getWorldQuaternion(q);return n.clone().applyQuaternion(q).normalize()}
 function faceNormalWorld(hit){const n=(hit.face&&hit.face.normal?hit.face.normal.clone():new T.Vector3(0,0,1)).normalize();const m3=new T.Matrix3().getNormalMatrix(hit.object.matrixWorld);return n.applyMatrix3(m3).normalize()}
 function updateBoxInfo(){if(!M)return;const b=new T.Box3().setFromObject(M),sz=b.getSize(new T.Vector3());D('propBox').value=sz.x.toFixed(2)+'×'+sz.y.toFixed(2)+'单位 / '+u2mm(sz.x).toFixed(1)+'×'+u2mm(sz.y).toFixed(1)+'×'+u2mm(sz.z).toFixed(1)+'mm'}
-function autoDetectUnit(){if(!M)return;const b=new T.Box3().setFromObject(M),sz=b.getSize(new T.Vector3()),md=Math.max(sz.x,sz.y,sz.z);if(md>0&&md<=2){unitMM=1000;D('propUnit').value='1000';msg('已检测到米制STL：自动设置 1模型单位=1000mm')}else if(md>2&&md<=20){unitMM=100;D('propUnit').value='100';msg('已检测到厘米制STL：自动设置 1模型单位=100mm')}D('topUnit').textContent=unitMM+' mm/单位'}
-function setDefaultsFromModel(){let recommended=10;if(M){const b=new T.Box3().setFromObject(M),sz=b.getSize(new T.Vector3()),maxMM=Math.max(u2mm(sz.x),u2mm(sz.y),u2mm(sz.z));recommended=Math.max(5,Math.min(14,maxMM*.01))}setRadius(recommended)}
+function autoDetectUnit(){if(!M)return;const b=new T.Box3().setFromObject(M),sz=b.getSize(new T.Vector3()),md=Math.max(sz.x,sz.y,sz.z);if(md>0&&md<=2){unitMM=1000;msg('已检测到米制STL：自动设置 1模型单位=1000mm')}else if(md>2&&md<=20){unitMM=100;msg('已检测到厘米制STL：自动设置 1模型单位=100mm')}D('topUnit').textContent=unitMM+' mm/单位'}
+function setDefaultsFromModel(){
+  if(!M)return;
+  const b=new T.Box3().setFromObject(M),sz=b.getSize(new T.Vector3());
+  const autoFR=Math.max(20,Math.min(200,Math.round(radius*5)));
+  if(!FIELD_R_USER_MODIFIED){FIELD_R=autoFR;D('fieldRadiusSlider').value=FIELD_R;D('fieldRadiusLabel').textContent=FIELD_R+'mm'}
+}
 function setRadius(v){radius=Math.max(1,v);D('propRadius').value=radius.toFixed(1);D('topCell').textContent='r='+radius.toFixed(1)+'mm圆形';return radius}
 function triangleArea(a,b,c){return new T.Vector3().subVectors(b,a).cross(new T.Vector3().subVectors(c,a)).length()*.5}
 function meshArea(ph){const pos=ph.geometry.attributes.position,idx=ph.geometry.index;let area=0,a=new T.Vector3(),b=new T.Vector3(),d=new T.Vector3();if(idx){for(let i=0;i<idx.count;i+=3){a.fromBufferAttribute(pos,idx.getX(i)).applyMatrix4(ph.matrixWorld);b.fromBufferAttribute(pos,idx.getX(i+1)).applyMatrix4(ph.matrixWorld);d.fromBufferAttribute(pos,idx.getX(i+2)).applyMatrix4(ph.matrixWorld);area+=triangleArea(a,b,d)}}else{for(let i=0;i<pos.count;i+=3){a.fromBufferAttribute(pos,i).applyMatrix4(ph.matrixWorld);b.fromBufferAttribute(pos,i+1).applyMatrix4(ph.matrixWorld);d.fromBufferAttribute(pos,i+2).applyMatrix4(ph.matrixWorld);area+=triangleArea(a,b,d)}}return area*unitMM*unitMM}
@@ -259,10 +265,10 @@ SL('等待模型加载...');
 const _lblCanvas=document.createElement('canvas');_lblCanvas.width=256;_lblCanvas.height=256;
 const _lblCtx=_lblCanvas.getContext('2d');
 function _makeLabelTex(idText,valText,colorHex){
-  const c=document.createElement('canvas');c.width=256;c.height=256;
-  const ctx=c.getContext('2d');ctx.textAlign='center';
-  ctx.fillStyle='#ffffff';ctx.font='bold 44px "Segoe UI","Microsoft YaHei",sans-serif';
-  ctx.fillText(idText,128,66);
+  const c=document.createElement('canvas');c.width=512;c.height=512;
+  const ctx=c.getContext('2d');ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.fillStyle='#ffffff';ctx.font='bold 160px "Segoe UI","Microsoft YaHei",sans-serif';
+  ctx.fillText(idText,256,256);
   if(valText!==undefined){
     ctx.fillStyle=colorHex||'#4ec9b0';ctx.font='bold 72px "Segoe UI","Microsoft YaHei",sans-serif';
     ctx.fillText(valText,128,166);
@@ -276,15 +282,15 @@ function getOrCreateLabel(tex,group,ps,nm,off,id){
   let spr=null;
   group.children.forEach(ch=>{if(ch.userData&&ch.userData.isLabel)spr=ch});
   if(!spr){
-    const initTex=_makeLabelTex('#'+id,'-','#888');
+    const initTex=_makeLabelTex('#'+id);
     const mat=new T.SpriteMaterial({map:initTex,transparent:!0,opacity:.95,depthTest:!1,depthWrite:!1});
     spr=new T.Sprite(mat);
-    const s=Math.max(mm2u(14),mm2u(radius*2.5));
+    const s=Math.max(mm2u(radius*2.0),mm2u(14));
     spr.scale.set(s,s,1);
-    spr.userData={isLabel:!0,cellId:id};spr.visible=!1;
+    spr.userData={isLabel:!0,cellId:id};spr.visible=!0;
     group.add(spr);
   }
-  spr.position.copy(ps.clone().addScaledVector(nm,off*1.2));
+  spr.position.copy(ps.clone().addScaledVector(nm,off*2.5));
   return spr
 }
 function readCellNormal(c){
@@ -581,11 +587,13 @@ function closeAllMenus(){
 
 // Buttons
 D('tbWire').onclick=()=>{if(!M||!RT)return;if(!W){W=new T.LineSegments(new T.WireframeGeometry(M.geometry),new T.LineBasicMaterial({color:0xdfe9ff,transparent:!0,opacity:.08}));RT.add(W)}W.visible=!W.visible;D('tbWire').classList.toggle('active',W.visible);msg(W.visible?'线框模式: ON — 显示模型三角网格骨架':'线框模式: OFF')};
+D('tbExitPreview').onclick=()=>{if(PREVIEW)togglePreview();if(SIMULATE_ON)toggleSimulate()};
 D('tbPreview3D').onclick=()=>togglePreview();
 
 // ══════════ Wendland 力场重建 (三模式 + 性能缓存) ══════════
 let PREVIEW=!1,HEAT_INTERVAL=null,SIM_INTERVAL=null;
 let FIELD_MODE='manual',FIELD_R=60,_origMaterial=null,SIM_PRESET='wave';
+let FIELD_R_USER_MODIFIED=false;
 let SIMULATE_ON=!1;
 const MODEL_GREY=new T.Color(0x7f8998),SIM_INTERVAL_MS=40;
 
@@ -825,7 +833,7 @@ function updateCellPreviewStyle(cellPressures){
     g.children.forEach(ch=>{
       if(ch.userData&&ch.userData.pch){ch.visible=!PREVIEW;if(!PREVIEW){ch.material.opacity=.72;ch.material.color.set(0x4ec9b0)}}
       if(ch.userData&&ch.userData.center){ch.visible=!0;ch.material.opacity=PREVIEW?.82:.95;ch.material.color.set(PREVIEW?jetColor(cp):(V[id]>1?0xff4444:0x4ec9b0))}
-      if(ch.userData&&ch.userData.isLabel){ch.visible=PREVIEW}
+      if(ch.userData&&ch.userData.isLabel){ch.visible=!0;ch.material.opacity=PREVIEW?.9:.55}
     });
     const ed=g.children.find(ch=>ch.isLine);if(ed){ed.visible=!PREVIEW;if(!PREVIEW)ed.material.opacity=.55}
   });
@@ -874,21 +882,26 @@ function togglePreview(){
     const fill=M.geometry.attributes.color;for(let i=0;i<fill.count;i++)fill.setXYZ(i,MODEL_GREY.r,MODEL_GREY.g,MODEL_GREY.b);fill.needsUpdate=!0;
     if('needsUpdate'in M.material)M.material.needsUpdate=!0}
     updateHeatmap._lastKey=null;updateHeatmap();
-    O.forEach(g=>g.children.forEach(ch=>{if(ch.userData&&ch.userData.isLabel)ch.visible=!0}));
+    O.forEach(g=>g.children.forEach(ch=>{if(ch.userData&&ch.userData.isLabel)ch.material&&(ch.material.opacity=1)}));
     if(FIELD_MODE==='simulated'&&SIMULATE_ON){HEAT_INTERVAL=setInterval(updateHeatmap,500)}
     msg('力场预览 ON | R='+FIELD_R+'mm | mode='+FIELD_MODE)}
   else{
     fs.style.display='none';D('tbPreview3D').classList.remove('active');
     clearInterval(HEAT_INTERVAL);HEAT_INTERVAL=null;
-    O.forEach(g=>g.children.forEach(ch=>{if(ch.userData&&ch.userData.isLabel){ch.visible=!1}}));
+    O.forEach(g=>g.children.forEach(ch=>{if(ch.userData&&ch.userData.isLabel){ch.material&&(ch.material.opacity=.55)}}));
     if(M&&M.material){
-      if(_origMaterial){M.material.color.set(_origMaterial.color);M.material.opacity=_origMaterial.opacity;
+      M.material.vertexColors=false;
+      if(_origMaterial){
+        M.material.color.set(_origMaterial.color);M.material.opacity=_origMaterial.opacity;
         M.material.transparent=_origMaterial.transparent;M.material.depthWrite=_origMaterial.depthWrite;
         M.material.depthTest=_origMaterial.depthTest;M.material.side=_origMaterial.side;
         M.material.blending=_origMaterial.blending;M.material.vertexColors=_origMaterial.vertexColors;
-        _origMaterial=null}
+        _origMaterial=null
+      }
       M.material.emissive=new T.Color(0);M.material.emissiveIntensity=0;
+      if('needsUpdate'in M.material)M.material.needsUpdate=!0;
     }
+    O.forEach(g=>g.children.forEach(ch=>{if(ch.userData&&ch.userData.pch){ch.material.opacity=.72;ch.material.color.set(0x4ec9b0)}if(ch.userData&&ch.userData.center){ch.material.opacity=.95;ch.material.color.set(0x4ec9b0)}if(ch.isLine){ch.material.opacity=.55;ch.material.color.set(0xffffff)}}));
     updateCellPreviewStyle({});HL();msg('退出力场预览')}
 }
 
@@ -910,14 +923,16 @@ D('fieldModeSelect').onchange=()=>{const mode=D('fieldModeSelect').value;
   else{SIMULATE_ON=!1;clearInterval(SIM_INTERVAL);SIM_INTERVAL=null;clearInterval(HEAT_INTERVAL);HEAT_INTERVAL=null;D('tbSimulate').classList.remove('active');D('presetRow').style.display='none';_pulseHotspots=null;setFieldMode(mode)}
   updateHeatmap._lastKey=null;if(PREVIEW)updateHeatmap()};
 
-D('fieldRadiusSlider').oninput=()=>{FIELD_R=parseInt(D('fieldRadiusSlider').value)||60;D('fieldRadiusLabel').textContent=FIELD_R+'mm';invalidateFieldCache();updateHeatmap._lastKey=null;if(PREVIEW)updateHeatmap()};
+D('fieldRadiusSlider').oninput=()=>{FIELD_R=parseInt(D('fieldRadiusSlider').value)||60;FIELD_R_USER_MODIFIED=true;D('fieldRadiusLabel').textContent=FIELD_R+'mm';invalidateFieldCache();updateHeatmap._lastKey=null;if(PREVIEW)updateHeatmap()};
 // ══════════════ END Wendland 力场重建 ══════════════
 // ══════════════ END Wendland 力场重建 ══════════════
 D('tbReset').onclick=()=>{if(!RT||!CT||!CA)return;const b=new T.Box3().setFromObject(RT),sz=b.getSize(new T.Vector3()),md=Math.max(sz.x,sz.y,sz.z);CT.target.set(0,0,0);CA.position.set(md*.55,-md*0.8,md*.55);CA.lookAt(0,0,0);CT.update()};
 D('tbEdit').onclick=()=>{E=!E;D('tbEdit').textContent=E?'编辑模式':'预览模式';D('tbEdit').classList.toggle('active',E);HL();msg(E?'编辑模式':'预览模式')};
 D('tbPlace').onclick=()=>{P=!P;D('tbPlace').classList.toggle('active',P);if(P&&!E){E=!0;D('tbEdit').textContent='编辑模式';D('tbEdit').classList.add('active')}msg(P?'放置模式：单击曲面添加Cell；再次点击关闭':'放置模式关闭')};
 D('basketDrag').onclick=()=>{const id=getFreeId();if(id<0){msg('篮子已满','w');return}msg('Cell #'+id+' 已创建，Ctrl+Click放到曲面')};
-D('propUnit').onchange=()=>{const v=parseFloat(D('propUnit').value);if(v>0){unitMM=v;D('topUnit').textContent=unitMM+' mm/单位';updateBoxInfo();if(Object.keys(C).length===0)setDefaultsFromModel();CO();RB();refreshProps();refreshTable();msg('单位比例已更新：1模型单位='+unitMM+'mm')}else{D('propUnit').value=unitMM}};
+D('propX').onchange=()=>{if(F>=0&&C[F]){const v=parseFloat(D('propX').value);if(Number.isFinite(v)){C[F].x=mm2u(v);invalidateFieldCache();updateHeatmap._lastKey=null;addOrUpdateCell(F);refreshProps();if(PREVIEW)updateHeatmap()}else{D('propX').value=u2mm(C[F].x).toFixed(1)}}};
+D('propY').onchange=()=>{if(F>=0&&C[F]){const v=parseFloat(D('propY').value);if(Number.isFinite(v)){C[F].y=mm2u(v);invalidateFieldCache();updateHeatmap._lastKey=null;addOrUpdateCell(F);refreshProps();if(PREVIEW)updateHeatmap()}else{D('propY').value=u2mm(C[F].y).toFixed(1)}}};
+D('propZ').onchange=()=>{if(F>=0&&C[F]){const v=parseFloat(D('propZ').value);if(Number.isFinite(v)){C[F].z=mm2u(v);invalidateFieldCache();updateHeatmap._lastKey=null;addOrUpdateCell(F);refreshProps();if(PREVIEW)updateHeatmap()}else{D('propZ').value=u2mm(C[F].z).toFixed(1)}}};
 D('propRadius').onchange=()=>{const v=parseFloat(D('propRadius').value);if(v>0){const sl=setRadius(v);if(F>=0&&C[F]){C[F].r=sl;invalidateFieldCache();updateHeatmap._lastKey=null;CO();addOrUpdateCell(F);refreshProps();refreshTable();if(PREVIEW)updateHeatmap()}}else{D('propRadius').value=radius.toFixed(1);msg('半径必须大于0','w')}};
 D('propLabel').onchange=()=>{if(F>=0&&C[F]){C[F].label=D('propLabel').value.trim();addOrUpdateCell(F);refreshProps()}};
 D('propPressure').onchange=()=>{if(F>=0&&C[F]){let v=parseFloat(D('propPressure').value);v=Number.isFinite(v)?Math.max(0,Math.min(1,v)):0;D('propPressure').value=v;C[F].pressure=v;updateHeatmap._lastKey=null;if(PREVIEW)updateHeatmap()}};
@@ -1008,7 +1023,7 @@ window.pyCommand=function(cmd,data){
     else if(cmd==='setLabel'&&F>=0&&C[F]){C[F].label=(data.label||'').trim();addOrUpdateCell(F);_notify()}
     else if(cmd==='setRot'&&F>=0&&C[F]){C[F].rot=parseFloat(data.rot)||0;addOrUpdateCell(F);_notify()}
     else if(cmd==='setTotal'&&data.n>=1&&data.n<=200){const oldM=MAX;MAX=data.n;refreshBasket();refreshTable();refreshProps();_notify();msg('通道数已更新: '+oldM+' -> '+MAX)}
-    else if(cmd==='setUnit'&&data.unit>0){unitMM=data.unit;D('propUnit').value=unitMM;D('topUnit').textContent=unitMM+' mm/单位';updateBoxInfo();if(Object.keys(C).length>0){CO();RB();refreshProps();refreshTable()}_notify();msg('单位比例已更新: 1模型单位='+unitMM+'mm')}
+    else if(cmd==='setUnit'&&data.unit>0){unitMM=data.unit;D('topUnit').textContent=unitMM+' mm/单位';updateBoxInfo();if(Object.keys(C).length>0){CO();RB();refreshProps();refreshTable()}_notify();msg('单位比例已更新: 1模型单位='+unitMM+'mm')}
     else if(cmd==='deleteCell'&&F>=0){snapShot();delete C[F];removeCellMesh(F);F=-1;invalidateFieldCache();updateHeatmap._lastKey=null;CO();HL();refreshBasket();refreshTable();refreshProps();_notify()}
     else if(cmd==='focusCell'&&data.id>=0&&C[data.id]){F=data.id;const c=C[F];if(!CT||!CA)return;const p=localToWp(new T.Vector3(c.x,c.y,c.z));CT.target.copy(p);CA.position.set(p.x,p.y-80,p.z+50);HL();_notify()}
     else if(cmd==='getAllCells'){const all=[];for(let i=0;i<MAX;i++){const c=C[i];all.push(c?{id:i,x:u2mm(c.x).toFixed(1),y:u2mm(c.y).toFixed(1),z:u2mm(c.z).toFixed(1),radius:c.r.toFixed(1),area:cellSurfaceArea(c).toFixed(1),overlap:V[i]||0}:null)}sendBridge('allCells',all)}
@@ -1028,9 +1043,11 @@ window.pyCommand=function(cmd,data){
       updateHeatmap._lastKey=null;_pulseHotspots=null;UNDO=[];REDO=[];
       // Q26: 显式unit_mm标记
       const hasExplicitUnit=Number.isFinite(data.unit_mm)&&data.unit_mm>0;
-      unitMM=data.unit_mm||1;radius=10;MAX=data.total_points||200;
-      FIELD_MODE='manual';FIELD_R=60;SIM_PRESET='wave';
-      D('propUnit').value=unitMM;D('topUnit').textContent=unitMM+' mm/单位';D('bsTotal').value=MAX;
+      unitMM=data.unit_mm||1;radius=data.cell_radius||10;MAX=data.total_points||200;
+      const userCellRadius=data.cell_radius||0;
+      const userRealHeightMM=data.real_height||0;
+      FIELD_MODE='manual';FIELD_R=60;FIELD_R_USER_MODIFIED=false;SIM_PRESET='wave';
+      D('topUnit').textContent=unitMM+' mm/单位';D('bsTotal').value=MAX;
       D('fieldModeSelect').value='manual';D('simPresetSelect').value='wave';
       D('fieldRadiusSlider').value=60;D('fieldRadiusLabel').textContent='60mm';
       // Q28: 立即刷新防止旧Cell残留 + 加载中状态
@@ -1045,7 +1062,7 @@ window.pyCommand=function(cmd,data){
         const rawFaces = geo.index ? geo.index.count / 3 : geo.attributes.position.count / 3;
         const maxEdgeMM = computeMaxEdgeMM(geo);
         const targetEdgeMM = FIELD_R / 4;
-        const needTessellation = maxEdgeMM > targetEdgeMM && rawFaces < 80000;
+        const needTessellation = maxEdgeMM > targetEdgeMM && rawFaces < 200000;
         let tessIterations = 0;
         if (needTessellation) {
           tessIterations = Math.min(3, Math.ceil(Math.log2(maxEdgeMM / Math.max(targetEdgeMM, 1))));
@@ -1061,7 +1078,7 @@ window.pyCommand=function(cmd,data){
         SL('构建BVH...');let useAccel=!0;try{geo.computeBoundsTree()}catch(e){console.warn('BVH构建失败,使用默认raycast:',e);useAccel=!1}
         const n=geo.index?geo.index.count/3:geo.attributes.position.count/3;
         D('propTri').value=n; D('propModel').value=name||'模型'; D('sModel').textContent=name||'模型';
-        const mt=new T.MeshPhongMaterial({color:0x7f8998,specular:0x333,shininess:45,side:T.DoubleSide,transparent:!1,opacity:1});
+        const mt=new T.MeshPhongMaterial({color:0x7f8998,specular:0x111,shininess:15,side:T.DoubleSide});
         if(M){RT.remove(M);M.geometry.dispose()}
         M=new T.Mesh(geo,mt);M.raycast=useAccel?acceleratedRaycast:T.Mesh.prototype.raycast;RT.add(M);
         C={};F=-1;_vpos=null;invalidateFieldCache();
@@ -1073,7 +1090,11 @@ window.pyCommand=function(cmd,data){
         S=Math.max(sz.x,sz.y,sz.z);
         SL('计算曲面面积...');buildSurfaceIndex();
         // Q26: 显式unit_mm则跳过自动检测
-        if(hasExplicitUnit){setDefaultsFromModel()}else{autoDetectUnit();updateBoxInfo();setDefaultsFromModel()}
+        if(userRealHeightMM>0){
+          const modelH=Math.max(sz.x,sz.y,sz.z);
+          if(modelH>0){unitMM=userRealHeightMM/modelH;D('topUnit').textContent=unitMM.toFixed(3)+' mm/单位';}
+          updateBoxInfo();setDefaultsFromModel();
+        }else if(hasExplicitUnit){setDefaultsFromModel()}else{autoDetectUnit();updateBoxInfo();setDefaultsFromModel()}
         const surfaceAreaMM2=meshArea(M);
         const recommendedChannels=Math.max(10,Math.min(999999,Math.round(surfaceAreaMM2/400)));
         const prevMAX=MAX;
@@ -1098,7 +1119,7 @@ window.pyCommand=function(cmd,data){
               if(curDist>mdiag*3){ // 单位明显错误
                 let bestU=unitMM,bestD=curDist;
                 [1,10,100,1000].forEach(u=>{const d=avgDist(u);if(d<bestD){bestD=d;bestU=u}});
-                if(bestU!==unitMM){console.log('[unit-correct] '+unitMM+'→'+bestU+' (dist '+curDist.toFixed(1)+'→'+bestD.toFixed(1)+')');unitMM=bestU;D('propUnit').value=unitMM;D('topUnit').textContent=unitMM+' mm/单位';msg('旧工程单位已校正: '+unitMM+' mm/单位')}
+                if(bestU!==unitMM){console.log('[unit-correct] '+unitMM+'→'+bestU+' (dist '+curDist.toFixed(1)+'→'+bestD.toFixed(1)+')');unitMM=bestU;D('topUnit').textContent=unitMM+' mm/单位';msg('旧工程单位已校正: '+unitMM+' mm/单位')}
               }
             }
           }
@@ -1258,7 +1279,7 @@ D('stlFileInput').onchange=function(e){
 function finishStandalone(geo,name,useAccel){
   if(!geo){msg('无法解析几何体','e');return}
   const n=geo.index?geo.index.count/3:geo.attributes.position.count/3;
-  const mt=new T.MeshPhongMaterial({color:0x7f8998,specular:0x333,shininess:45,side:T.DoubleSide,transparent:!1,opacity:1});
+  const mt=new T.MeshBasicMaterial({color:0x7f8998,side:T.DoubleSide});
   if(M){RT.remove(M);M.geometry.dispose()}
   M=new T.Mesh(geo,mt);M.raycast=useAccel?acceleratedRaycast:T.Mesh.prototype.raycast;RT.add(M);
   C={};F=-1;_vpos=null;invalidateFieldCache();
