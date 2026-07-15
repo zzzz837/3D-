@@ -57,6 +57,7 @@ body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:#1e1e1e;colo
   <button id="tbSimulate">模拟压力</button>
   <button id="tbExitPreview" style="background:#a04030">退出预览</button>
   <button id="tbPlace">放置模式</button>
+  <button id="tbMultiMove">选中</button>
   <button id="tbWire">线框</button>
   <button id="tbReset">重置视角</button>
   <button id="tbEdit" class="active">编辑模式</button>
@@ -74,7 +75,8 @@ body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:#1e1e1e;colo
     <div class="landed-list" id="landedTags"></div><div class="divider"></div><h3>未落地</h3>
     <div class="landed-list" id="unlandedTags"></div>
   </div>
-  <div class="viewport" id="viewport"><canvas id="canvas3D"></canvas><div class="vp-hint">左键旋转·滚轮缩放·中/右键平移·点击Cell选中·Ctrl+Click或放置模式单击添加·F聚焦·Del删除·Tab编辑预览</div>
+  <div class="viewport" id="viewport"><canvas id="canvas3D"></canvas><div class="vp-hint">左键旋转·滚轮缩放·中/右键平移·点击Cell选中·Ctrl+Click或放置模式单击添加·F聚焦·Del删除·Tab编辑预览·右键框选多选</div>
+  <div id="selBox" style="display:none;position:absolute;border:1px dashed #4ec9b0;background:rgba(78,201,176,0.08);pointer-events:none;z-index:10"></div>
   </div>
   <div class="props">
     <div class="group"><h3 style="color:#4ec9b0;font-size:12px;margin-bottom:6px">模型信息</h3>
@@ -106,7 +108,7 @@ body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:#1e1e1e;colo
   </div>
 </div>
 <div class="channel-table"><table><thead><tr><th>ID</th><th>落地</th><th>重叠</th><th>X</th><th>Y</th><th>Z</th><th>面积</th><th>半径</th></tr></thead><tbody id="channelBody"></tbody></table></div>
-<div class="statusbar"><span id="sModel">—</span><span>|</span><span>已落地:<b id="sLanded">0</b>/<b id="sTotal">200</b></span><span>|</span><span>重叠:<b id="sOverlap">0</b></span><span>|</span><span id="sLoad">加载中...</span><span>|</span><span id="sMouse">曲面:—</span><span>|</span><span id="sCtrl">Ctrl:—</span></div>
+<div class="statusbar"><span id="sModel">—</span><span>|</span><span>已落地:<b id="sLanded">0</b>/<b id="sTotal">200</b></span><span>|</span><span>重叠:<b id="sOverlap">0</b></span><span>|</span><span id="sSelected" style="color:#ffd700"></span><span>|</span><span id="sLoad">加载中...</span><span>|</span><span id="sMouse">曲面:—</span><span>|</span><span id="sCtrl">Ctrl:—</span></div>
 <div class="status-msg" id="statusMsg"></div>
 <script>// Polyfill .at() for Chromium 83 (QWebEngine)
 !function(){function t(o,r){if(!o.at){var n=typeof o;Object.defineProperty(o,'at',{value:function(i){i=Math.trunc(i)||0;if(i<0)i+=this.length;return i<0||i>=this.length?r:this[i]},writable:!0,configurable:!0})}}t(Array.prototype);t(String.prototype);t(Int8Array.prototype,0);t(Uint8Array.prototype,0);t(Uint8ClampedArray.prototype,0);t(Int16Array.prototype,0);t(Uint16Array.prototype,0);t(Int32Array.prototype,0);t(Uint32Array.prototype,0);t(Float32Array.prototype,0);t(Float64Array.prototype,0)}();</script>
@@ -129,9 +131,11 @@ window.addEventListener('unhandledrejection',e=>{
 });
 
 let MAX=0;          // 通道总数，模型加载后根据曲面面积自动推导
-let C={},M=null,O=[],G={},A={},F=-1,E=!0,V={},K=!1,P=!1,S=1,radius=10,unitMM=1,lastMousePick=0,UNDO=[],REDO=[];
+let C={},M=null,O=[],G={},A={},F=-1,E=!0,V={},K=!1,P=!1,MULTI=!1,S=1,radius=10,unitMM=1,lastMousePick=0,UNDO=[],REDO=[];
 let collisionEnabled = true;
 let dragCellId=-1, dragging=!1;  // Ctrl+拖拽移动Cell
+let selectedCells=new Set();     // 多选
+let boxSelect=!1,boxStartX=0,boxStartY=0,boxCurX=0,boxCurY=0;
 
 const D=id=>document.getElementById(id);
 T.BufferGeometry.prototype.computeBoundsTree=computeBoundsTree;T.BufferGeometry.prototype.disposeBoundsTree=disposeBoundsTree;
@@ -358,7 +362,7 @@ function BC(id){
   if(M){
     ph.updateMatrix();
     const wM=new T.Matrix4().multiplyMatrices(RT.matrixWorld,ph.matrix),wI=new T.Matrix4().copy(wM).invert();
-    const centerW=localToWp(ps),maxJump=Math.max(ru*2.4,mm2u(18));
+    const centerW=localToWp(ps),maxJump=Math.max(ru*4,mm2u(40));
     const tree=M.geometry&&M.geometry.boundsTree;
     const lPt=new T.Vector3(),lClosest=new T.Vector3(),lr=new T.Vector3(),wn=normalToWorld(nm);
     // 逐顶点 BVH 曲面投影 + 统一法线偏移（稳定版）
@@ -376,7 +380,6 @@ function BC(id){
       try{tree.closestPointToPoint(lPt,lClosest,0,maxJump)}catch(e){lClosest.set(0,0,0)}
       if(lClosest.lengthSq()<1e-12)continue;
       const pWorld=M.localToWorld(lClosest.clone());
-      if(pWorld.distanceTo(wv)>maxJump)continue;
       lr.copy(pWorld.clone().addScaledVector(wn,off)).applyMatrix4(wI);
       pa.setXYZ(i,lr.x,lr.y,lr.z);
     }
@@ -402,12 +405,13 @@ function addOrUpdateCell(id){if(G[id]){CG.remove(G[id]);O=O.filter(g=>g!==G[id])
 function removeCellMesh(id){if(G[id]){CG.remove(G[id]);O=O.filter(g=>g!==G[id]);delete G[id]}delete A[id]}
 function RB(){O.forEach(g=>CG.remove(g));O=[];G={};A={};Object.keys(C).forEach(id=>{const g=BC(+id);if(g){G[id]=g;CG.add(g);O.push(g)}});HL();updateOverlapUI()}
 function HL(){
-  O.forEach(g=>{const id=g.userData.id,isF=id===F,ov=V[id]||1,io=ov>1;
-    g.children.forEach(ch=>{if(ch.userData&&ch.userData.pch){if(isF){ch.material.opacity=.88;ch.material.color.set(0xffffff)}else if(io){const sv=Math.min(1,(ov-1)/4);ch.material.opacity=.75+sv*.2;ch.material.color.set(new T.Color(1,.35*(1-sv),.1*(1-sv)))}else{ch.material.opacity=.58;ch.material.color.set(0x4ec9b0)}}
-      if(ch.userData&&ch.userData.center){ch.material.opacity=.95;ch.material.color.set(io?0xff4444:0x4ec9b0)}
+  O.forEach(g=>{const id=g.userData.id,isF=id===F,isSel=selectedCells.has(id),ov=V[id]||1,io=ov>1;
+    g.children.forEach(ch=>{if(ch.userData&&ch.userData.pch){if(isF||isSel){ch.material.opacity=.88;ch.material.color.set(isF?0xffffff:0xffd700)}else if(io){const sv=Math.min(1,(ov-1)/4);ch.material.opacity=.75+sv*.2;ch.material.color.set(new T.Color(1,.35*(1-sv),.1*(1-sv)))}else{ch.material.opacity=.58;ch.material.color.set(0x4ec9b0)}}
+      if(ch.userData&&ch.userData.center){ch.material.opacity=.95;ch.material.color.set(isSel&&!isF?0xffd700:(io?0xff4444:0x4ec9b0))}
     });
-    const b=g.children[1];if(b&&b.isLine){b.material.color.set(isF?0xffffff:(io?0xff4444:0xffffff));b.material.opacity=isF?.95:(io?.85:.45)}
-  })
+    const b=g.children[1];if(b&&b.isLine){b.material.color.set(isF?0xffffff:(isSel?0xffd700:(io?0xff4444:0xffffff)));b.material.opacity=isF?.95:(isSel?.9:(io?.85:.45))}
+  });
+  D('sSelected').textContent=selectedCells.size>0?'已选'+selectedCells.size+'个':'';
 }
 function CO(){
   V={};const arr=Object.values(C);
@@ -425,15 +429,31 @@ function placeCell(hit){
   const p=wpToLocal(hit.point),n=normalToLocal(faceNormalWorld(hit));
   const viewDir=normalToLocal(new T.Vector3().subVectors(CA.position,hit.point).normalize());
   if(n.dot(viewDir)<0)n.negate();
-  // 碰撞检测
-  if(collisionEnabled){
-    const di=mm2u(radius*.9);
+  // 自动吸附: 检查附近Cell, 沿X或Y轴相切放置
+  const snapRange=mm2u(radius*2.5);
+  let bestDist=Infinity,bestSnap=null;
+  for(const c of Object.values(C)){
+    const dx=p.x-c.x,dy=p.y-c.y,dz=p.z-c.z;
+    const dist=Math.sqrt(dx*dx+dy*dy+dz*dz);
+    if(dist>snapRange)continue;
+    const sumR=mm2u(radius+c.r);
+    if(Math.abs(dx)>=Math.abs(dy)){
+      const sx=c.x+(dx>0?sumR:-sumR);
+      const d2=Math.sqrt((p.x-sx)*(p.x-sx)+dy*dy+dz*dz);
+      if(d2<bestDist){bestDist=d2;bestSnap={x:sx,y:c.y,z:p.z};}
+    }
+    if(Math.abs(dy)>=Math.abs(dx)){
+      const sy=c.y+(dy>0?sumR:-sumR);
+      const d2=Math.sqrt(dx*dx+(p.y-sy)*(p.y-sy)+dz*dz);
+      if(d2<bestDist){bestDist=d2;bestSnap={x:c.x,y:sy,z:p.z};}
+    }
+  }
+  if(bestSnap){p.x=bestSnap.x;p.y=bestSnap.y;p.z=bestSnap.z}
+  if(collisionEnabled&&!bestSnap){
+    const di=mm2u(radius*.85);
     for(const c of Object.values(C)){
-      const dx=p.x-c.x,dy=p.y-c.y,dz=p.z-c.z;
-      const dj=mm2u(c.r*.9);
-      if(Math.sqrt(dx*dx+dy*dy+dz*dz)<di+dj){
-        msg('碰撞检测: 与Cell #'+c.id+' 过于接近，已阻止放置','w'); return;
-      }
+      const dx=p.x-c.x,dy=p.y-c.y;const dz=p.z-c.z;
+      if(Math.sqrt(dx*dx+dy*dy+dz*dz)<di+mm2u(c.r*.85)){msg('与Cell #'+c.id+' 过近','w');return}
     }
   }
   C[id]={x:p.x,y:p.y,z:p.z,nx:n.x,ny:n.y,nz:n.z,r:radius,rot:0,label:'',pressure:0,id};
@@ -463,9 +483,69 @@ function moveSelectedCell(hit){
   CO();addOrUpdateCell(F);refreshBasket();refreshTable();refreshProps();msg('Cell #'+F+' 已移动');return true
 }
 
-// ── Ctrl+拖拽移动Cell ──
+// ── 右键框选 + 多选拖拽 ──
+cv.addEventListener('contextmenu',e=>e.preventDefault());
+const selBox=D('selBox');
+let _multiDragOffsets=null,_multiDragOrigin=null;
+
+cv.addEventListener('pointerdown',e=>{
+  if(e.button===2&&!e.ctrlKey&&MULTI){
+    if(!M||!E)return;
+    const r=cv.getBoundingClientRect();
+    boxSelect=!0;boxStartX=e.clientX-r.left;boxStartY=e.clientY-r.top;
+    selBox.style.display='block';selBox.style.left=boxStartX+'px';selBox.style.top=boxStartY+'px';selBox.style.width='0';selBox.style.height='0';
+    return;
+  }
+});
+
+cv.addEventListener('pointermove',e=>{
+  if(boxSelect){
+    const r=cv.getBoundingClientRect();
+    boxCurX=e.clientX-r.left;boxCurY=e.clientY-r.top;
+    const l=Math.min(boxStartX,boxCurX),t=Math.min(boxStartY,boxCurY),w=Math.abs(boxCurX-boxStartX),h=Math.abs(boxCurY-boxStartY);
+    selBox.style.left=l+'px';selBox.style.top=t+'px';selBox.style.width=w+'px';selBox.style.height=h+'px';
+    return;
+  }
+});
+
+cv.addEventListener('pointerup',e=>{
+  if(boxSelect){
+    boxSelect=!1;selBox.style.display='none';
+    if(!e.shiftKey)selectedCells.clear();
+    const r=cv.getBoundingClientRect(),l=Math.min(boxStartX,boxCurX),t=Math.min(boxStartY,boxCurY),w=Math.abs(boxCurX-boxStartX),h=Math.abs(boxCurY-boxStartY);
+    if(w<5&&h<5)return;
+    O.forEach(g=>{const id=g.userData.id;if(!C[id])return;
+      const wp=localToWp(new T.Vector3(C[id].x,C[id].y,C[id].z)),sp=wp.clone().project(CA);
+      const sx=(sp.x+1)/2*r.width,sy=(1-sp.y)/2*r.height;
+      if(sx>=l&&sx<=l+w&&sy>=t&&sy<=t+h&&sp.z<1)selectedCells.add(id);
+    });
+    HL();refreshProps();refreshTable();refreshBasket();
+    return;
+  }
+});
+
+// ── Ctrl+拖拽移动Cell (支持多选整体移动) ──
 cv.addEventListener('mousedown',e=>{
   if(!M||!E)return;
+  if(e.button===2)return;
+  if(MULTI&&e.button===0){
+    const r2=cv.getBoundingClientRect(),m2=new T.Vector2((e.clientX-r2.left)/r2.width*2-1,-(e.clientY-r2.top)/r2.height*2+1);
+    RY.setFromCamera(m2,CA);
+    const ph2=RY.intersectObjects(O.flatMap(g=>g.children.filter(c=>c.userData&&c.userData.pch)),!1);
+    if(ph2.length>0){
+      const hitId=ph2[0].object.userData.id;
+      if(selectedCells.has(hitId)&&!(e.ctrlKey||K)){
+        // 点已选中的Cell → 直接拖拽整体移动
+        dragCellId=hitId;dragging=!0;snapShot();F=hitId;
+        _multiDragOffsets=new Map();const base=C[hitId];
+        selectedCells.forEach(id=>{if(id===hitId||!C[id])return;_multiDragOffsets.set(id,[C[id].x-base.x,C[id].y-base.y,C[id].z-base.z])});
+        HL();refreshProps();refreshTable();cv.style.cursor='grabbing';return;
+      }
+      F=hitId;if(!e.shiftKey)selectedCells.clear();selectedCells.add(hitId);
+      HL();refreshProps();refreshTable();refreshBasket();msg('已选 Cell #'+hitId+' ('+selectedCells.size+'个)')
+    }else{F=-1;selectedCells.clear();HL();refreshProps();refreshTable();refreshBasket()}
+    return;
+  }
   const r=cv.getBoundingClientRect(),m=new T.Vector2((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1);
   RY.setFromCamera(m,CA);
   if(e.ctrlKey||K){
@@ -474,6 +554,13 @@ cv.addEventListener('mousedown',e=>{
     if(ph.length>0){
       dragCellId=ph[0].object.userData.id; dragging=!0;
       CT.enabled=!1; snapShot(); F=dragCellId;
+      if(selectedCells.has(dragCellId)&&selectedCells.size>1){
+        _multiDragOffsets=new Map();
+        const base=C[dragCellId];
+        selectedCells.forEach(id=>{if(id===dragCellId||!C[id])return;
+          _multiDragOffsets.set(id,[C[id].x-base.x,C[id].y-base.y,C[id].z-base.z]);
+        });
+      }
       HL(); refreshProps(); refreshTable();
       cv.style.cursor='grabbing';
     }else{
@@ -489,15 +576,14 @@ cv.addEventListener('mousedown',e=>{
   }
   // 普通点击: 选中Cell
   const ph=RY.intersectObjects(O.flatMap(g=>g.children.filter(c=>c.userData&&c.userData.pch)),!1);
-  if(ph.length>0&&E){F=ph[0].object.userData.id;msg('已选中 Cell #'+F)}
-  else{F=-1}
+  if(ph.length>0&&E){F=ph[0].object.userData.id;selectedCells.clear();msg('已选中 Cell #'+F)}
+  else{F=-1;selectedCells.clear()}
   HL();refreshProps();refreshTable();refreshBasket()
 });
 
 cv.addEventListener('mousemove',e=>{
   if(!M)return;
   if(dragging&&dragCellId>=0){
-    // 拖拽中: 移动Cell到曲面位置
     const r=cv.getBoundingClientRect(),m=new T.Vector2((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1);
     RY.setFromCamera(m,CA);
     const h=RY.intersectObject(M,!1);
@@ -505,6 +591,13 @@ cv.addEventListener('mousemove',e=>{
       const c=C[dragCellId],p=wpToLocal(h[0].point),n=normalToLocal(faceNormalWorld(h[0]));
       const viewDir=normalToLocal(new T.Vector3().subVectors(CA.position,h[0].point).normalize());
       if(n.dot(viewDir)<0)n.negate();
+      if(selectedCells.has(dragCellId)&&selectedCells.size>1&&_multiDragOffsets){
+        selectedCells.forEach(id=>{if(!C[id]||id===dragCellId)return;
+          const off=_multiDragOffsets.get(id);if(!off)return;
+          C[id].x=p.x+off[0];C[id].y=p.y+off[1];C[id].z=p.z+off[2];
+          addOrUpdateCell(id);
+        });
+      }
       c.x=p.x;c.y=p.y;c.z=p.z;c.nx=n.x;c.ny=n.y;c.nz=n.z;
       invalidateFieldCache();updateHeatmap._lastKey=null;
       addOrUpdateCell(dragCellId);
@@ -524,6 +617,7 @@ cv.addEventListener('mousemove',e=>{
 cv.addEventListener('mouseup',e=>{
   if(dragging){
     dragging=!1; CT.enabled=!0; cv.style.cursor='';
+    _multiDragOffsets=null;
     if(dragCellId>=0){
       CO(); addOrUpdateCell(dragCellId);
       if(PREVIEW)updateHeatmap();
@@ -541,7 +635,7 @@ document.addEventListener('keydown',e=>{
   if(e.key==='Control'){K=!0;D('sCtrl').textContent='ON';D('sCtrl').style.color='#4caf50'}
   if(e.target.tagName==='INPUT')return;
   if(e.key==='Tab'){e.preventDefault();E=!E;D('tbEdit').textContent=E?'编辑模式':'预览模式';D('tbEdit').classList.toggle('active',E);HL();msg(E?'编辑模式 — Cell可交互':'预览模式 — Cell只读')}
-  if(e.key==='Escape'){F=-1;HL();refreshProps();refreshTable();refreshBasket()}
+  if(e.key==='Escape'){F=-1;selectedCells.clear();HL();refreshProps();refreshTable();refreshBasket()}
   if(e.key==='p'||e.key==='P'){P=!P;D('tbPlace').classList.toggle('active',P);msg(P?'放置模式：单击曲面添加Cell':'放置模式关闭')}
   if(e.key==='f'&&F>=0&&C[F]){const c=C[F],p=localToWp(new T.Vector3(c.x,c.y,c.z));CT.target.copy(p);CA.position.set(p.x,p.y-80,p.z+50)}
   if(e.key==='h'||e.key==='H'){if(CG){CG.visible=!CG.visible;msg(CG.visible?'Cell显示':'Cell隐藏(调试)')}}
@@ -571,7 +665,7 @@ document.querySelectorAll('.menu-entry').forEach(entry=>{
     else if(action==='toggleEdit'){D('tbEdit').click()}
     else if(action==='undo'){if(typeof window.pyCommand!=='undefined')window.pyCommand('undo');else if(UNDO.length){REDO.push(JSON.stringify({MAX,radius,C,F,unitMM}));restoreState(UNDO.pop());_notify()}}
     else if(action==='redo'){if(typeof window.pyCommand!=='undefined')window.pyCommand('redo');else if(REDO.length){UNDO.push(JSON.stringify({MAX,radius,C,F,unitMM}));restoreState(REDO.pop());_notify()}}
-    else if(action==='deleteCell'){if(typeof window.pyCommand!=='undefined')window.pyCommand('deleteCell');else if(F>=0){snapShot();delete C[F];removeCellMesh(F);F=-1;invalidateFieldCache();updateHeatmap._lastKey=null;CO();HL();refreshBasket();refreshTable();refreshProps()}}
+    else if(action==='deleteCell'){if(typeof window.pyCommand!=='undefined')window.pyCommand('deleteCell');else{if(selectedCells.size>1){snapShot();selectedCells.forEach(id=>{delete C[id];removeCellMesh(id)});selectedCells.clear();F=-1}else if(F>=0){snapShot();delete C[F];removeCellMesh(F);F=-1}invalidateFieldCache();updateHeatmap._lastKey=null;CO();HL();refreshBasket();refreshTable();refreshProps()}}
     else if(action==='togglePreview'){D('tbPreview3D').click()}
     else if(action==='toggleSimulate'){D('tbSimulate').click()}
     else if(action==='wire'){D('tbWire').click()}
@@ -929,6 +1023,7 @@ D('fieldRadiusSlider').oninput=()=>{FIELD_R=parseInt(D('fieldRadiusSlider').valu
 D('tbReset').onclick=()=>{if(!RT||!CT||!CA)return;const b=new T.Box3().setFromObject(RT),sz=b.getSize(new T.Vector3()),md=Math.max(sz.x,sz.y,sz.z);CT.target.set(0,0,0);CA.position.set(md*.55,-md*0.8,md*.55);CA.lookAt(0,0,0);CT.update()};
 D('tbEdit').onclick=()=>{E=!E;D('tbEdit').textContent=E?'编辑模式':'预览模式';D('tbEdit').classList.toggle('active',E);HL();msg(E?'编辑模式':'预览模式')};
 D('tbPlace').onclick=()=>{P=!P;D('tbPlace').classList.toggle('active',P);if(P&&!E){E=!0;D('tbEdit').textContent='编辑模式';D('tbEdit').classList.add('active')}msg(P?'放置模式：单击曲面添加Cell；再次点击关闭':'放置模式关闭')};
+D('tbMultiMove').onclick=()=>{MULTI=!MULTI;D('tbMultiMove').classList.toggle('active',MULTI);if(MULTI){CT.enabled=!1}else{CT.enabled=!0}msg(MULTI?'选中模式：左键点选/拖拽，Shift追加，右键框选':'选中模式关闭')};
 D('basketDrag').onclick=()=>{const id=getFreeId();if(id<0){msg('篮子已满','w');return}msg('Cell #'+id+' 已创建，Ctrl+Click放到曲面')};
 D('propX').onchange=()=>{if(F>=0&&C[F]){const v=parseFloat(D('propX').value);if(Number.isFinite(v)){C[F].x=mm2u(v);invalidateFieldCache();updateHeatmap._lastKey=null;addOrUpdateCell(F);refreshProps();if(PREVIEW)updateHeatmap()}else{D('propX').value=u2mm(C[F].x).toFixed(1)}}};
 D('propY').onchange=()=>{if(F>=0&&C[F]){const v=parseFloat(D('propY').value);if(Number.isFinite(v)){C[F].y=mm2u(v);invalidateFieldCache();updateHeatmap._lastKey=null;addOrUpdateCell(F);refreshProps();if(PREVIEW)updateHeatmap()}else{D('propY').value=u2mm(C[F].y).toFixed(1)}}};
@@ -1024,7 +1119,10 @@ window.pyCommand=function(cmd,data){
     else if(cmd==='setRot'&&F>=0&&C[F]){C[F].rot=parseFloat(data.rot)||0;addOrUpdateCell(F);_notify()}
     else if(cmd==='setTotal'&&data.n>=1&&data.n<=200){const oldM=MAX;MAX=data.n;refreshBasket();refreshTable();refreshProps();_notify();msg('通道数已更新: '+oldM+' -> '+MAX)}
     else if(cmd==='setUnit'&&data.unit>0){unitMM=data.unit;D('topUnit').textContent=unitMM+' mm/单位';updateBoxInfo();if(Object.keys(C).length>0){CO();RB();refreshProps();refreshTable()}_notify();msg('单位比例已更新: 1模型单位='+unitMM+'mm')}
-    else if(cmd==='deleteCell'&&F>=0){snapShot();delete C[F];removeCellMesh(F);F=-1;invalidateFieldCache();updateHeatmap._lastKey=null;CO();HL();refreshBasket();refreshTable();refreshProps();_notify()}
+    else if(cmd==='deleteCell'){
+      if(selectedCells.size>1){snapShot();selectedCells.forEach(id=>{delete C[id];removeCellMesh(id)});selectedCells.clear();F=-1}
+      else if(F>=0){snapShot();delete C[F];removeCellMesh(F);F=-1}
+      invalidateFieldCache();updateHeatmap._lastKey=null;CO();HL();refreshBasket();refreshTable();refreshProps();_notify()}
     else if(cmd==='focusCell'&&data.id>=0&&C[data.id]){F=data.id;const c=C[F];if(!CT||!CA)return;const p=localToWp(new T.Vector3(c.x,c.y,c.z));CT.target.copy(p);CA.position.set(p.x,p.y-80,p.z+50);HL();_notify()}
     else if(cmd==='getAllCells'){const all=[];for(let i=0;i<MAX;i++){const c=C[i];all.push(c?{id:i,x:u2mm(c.x).toFixed(1),y:u2mm(c.y).toFixed(1),z:u2mm(c.z).toFixed(1),radius:c.r.toFixed(1),area:cellSurfaceArea(c).toFixed(1),overlap:V[i]||0}:null)}sendBridge('allCells',all)}
     else if(cmd==='exportCells'){const cells=[];for(const c of Object.values(C))cells.push({id:c.id,center_mm:{x:+u2mm(c.x).toFixed(4),y:+u2mm(c.y).toFixed(4),z:+u2mm(c.z).toFixed(4)},normal:{x:+c.nx.toFixed(4),y:+c.ny.toFixed(4),z:+c.nz.toFixed(4)},radius_mm:c.r,rotation_deg:c.rot||0,label:c.label||'',pressure:c.pressure||0});sendBridge('exportCells',{cells:cells,total_points:MAX,unit_mm:unitMM})}
