@@ -41,7 +41,7 @@ class TestNewProjectDialog:
         assert dialog.channels_spin.value() == 200
         assert dialog.channels_spin.minimum() == 1
         assert dialog.channels_spin.maximum() > 200  # 无上限
-        assert dialog.unit_spin.value() == 1.0
+        assert dialog.real_height.value() == 0
 
     def test_get_project_info_structure(self, dialog):
         """get_project_info() 返回正确的字段"""
@@ -53,13 +53,13 @@ class TestNewProjectDialog:
             f.write(b"solid test\nfacet normal 0 0 0\nouter loop\nendloop\nendfacet\nendsolid\n")
             model_path = f.name
         dialog._model_path = model_path
-        dialog.unit_spin.setValue(2.5)
+        dialog.real_height.setValue(7.0)
 
         info = dialog.get_project_info()
         assert info["name"] == "测试项目"
         assert info["channels"] == 50
         assert info["model_path"] == model_path
-        assert info["unit_mm"] == 2.5
+        assert info["real_height"] == 70.0
         assert "device_type" not in info  # Q4 否决
         assert "description" not in info  # Q4 否决
         os.unlink(model_path)

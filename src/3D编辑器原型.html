@@ -164,7 +164,7 @@ try{
   if(vp)vp.appendChild(errDiv);
   SC=null;CA=null;CT=null;RT=null;RY=null;CG=new T.Group();
 }
-let W=null,GM=[];
+let W=null,HM=null,GM=[];
 let SURF=null;
 
 function msg(m,t){const e=D('statusMsg');e.textContent=m;e.className='status-msg show';if(t==='w')e.classList.add('warn');if(t==='e')e.classList.add('error');clearTimeout(e._t);e._t=setTimeout(()=>e.classList.remove('show','warn','error'),t==='w'?4e3:2500)}
@@ -775,14 +775,69 @@ let PREVIEW=!1,HEAT_INTERVAL=null,SIM_INTERVAL=null;
 let FIELD_MODE='manual',FIELD_R=60,_origMaterial=null,SIM_PRESET='wave';
 let FIELD_R_USER_MODIFIED=false;
 let SIMULATE_ON=!1;
-let _fieldVisualBoost=1,_fieldSmoothIters=1,_fieldLow=0.04,_fieldMid=0.25;
-const MODEL_GREY=new T.Color(0x7f8998),SIM_INTERVAL_MS=40;
+let _fieldVisualBoost=1,_fieldSmoothIters=1,_fieldLow=0.04,_fieldMid=0.25,_fieldRadiusDebounce=0;
+const MODEL_GREY=new T.Color(0x7f8998),SIM_INTERVAL_MS=80;
 
 // ── 性能缓存 ──
-let _vpos=null,_ioff=null,_icell=null,_iwgt=null,_cv=null,_cacheOk=!1,_cacheFR=0;
+let _vpos=null,_ioff=null,_icell=null,_iwgt=null,_cv=null,_cacheOk=!1,_cacheFR=0,_cacheMesh=null;
+function getHeatmapMesh(){return M}
+function clearHeatmapShell(){
+  if(HM){
+    if(HM.parent)HM.parent.remove(HM);
+    HM.geometry&&HM.geometry.dispose();
+    HM.material&&HM.material.dispose();
+    HM=null;
+  }
+}
+function ensureHeatmapShell(){
+  if(!M)return null;
+  if(HM)return HM;
+  const shellGeo=M.geometry.clone();
+  shellGeo.computeVertexNormals();
+  const pos=shellGeo.attributes.position,nrm=shellGeo.attributes.normal;
+  const shellOffset=mm2u(0.25);
+  for(let i=0;i<pos.count;i++)pos.setXYZ(i,pos.getX(i)+nrm.getX(i)*shellOffset,pos.getY(i)+nrm.getY(i)*shellOffset,pos.getZ(i)+nrm.getZ(i)*shellOffset);
+  pos.needsUpdate=!0;
+  if(!shellGeo.attributes.color||shellGeo.attributes.color.count!==pos.count)shellGeo.setAttribute('color',new T.BufferAttribute(new Float32Array(pos.count*3),3));
+  const hmMat=new T.MeshPhongMaterial({color:0xffffff,transparent:!0,opacity:0.44,side:T.FrontSide,depthWrite:!1,depthTest:!0,blending:T.NormalBlending,vertexColors:!0});
+  HM=new T.Mesh(shellGeo,hmMat);HM.visible=!1;HM.renderOrder=3;RT.add(HM);
+  return HM;
+}
+function syncHeatmapShellColors(){
+  if(!HM||!M||!M.geometry.attributes.color||!HM.geometry.attributes.color)return;
+  const src=M.geometry.attributes.color,dst=HM.geometry.attributes.color;
+  const n=Math.min(src.count,dst.count);
+  for(let i=0;i<n;i++){
+    const sr=src.getX(i),sg=src.getY(i),sb=src.getZ(i);
+    const dr=sr-MODEL_GREY.r,dg=sg-MODEL_GREY.g,db=sb-MODEL_GREY.b;
+    const mag=Math.max(Math.abs(dr),Math.abs(dg),Math.abs(db));
+    const boost=1.01+Math.min(0.04,mag*0.16);
+    dst.setXYZ(
+      i,
+      Math.max(0,Math.min(1,MODEL_GREY.r+dr*boost)),
+      Math.max(0,Math.min(1,MODEL_GREY.g+dg*boost)),
+      Math.max(0,Math.min(1,MODEL_GREY.b+db*boost))
+    );
+  }
+  if(_adj&&_adj[0]&&_adj[0].length===n+1){
+    const tmp=new Float32Array(n*3);
+    for(let i=0;i<n;i++){
+      const s=_adj[0][i],e=_adj[0][i+1];
+      let r=dst.getX(i),g=dst.getY(i),b=dst.getZ(i),w=1;
+      for(let j=s;j<e;j++){
+        const nb=_adj[1][j];
+        r+=dst.getX(nb)*0.25;g+=dst.getY(nb)*0.25;b+=dst.getZ(nb)*0.25;w+=0.25;
+      }
+      tmp[i*3]=r/w;tmp[i*3+1]=g/w;tmp[i*3+2]=b/w;
+    }
+    for(let i=0;i<n;i++)dst.setXYZ(i,tmp[i*3],tmp[i*3+1],tmp[i*3+2]);
+  }
+  dst.needsUpdate=!0;
+}
 function invalidateFieldCache(){
-  if(_cacheOk&&M&&M.geometry&&M.geometry.attributes.color){
-    const col=M.geometry.attributes.color,n=col.count;
+  const HMESH=getHeatmapMesh();
+  if(_cacheOk&&HMESH&&HMESH.geometry&&HMESH.geometry.attributes.color){
+    const col=HMESH.geometry.attributes.color,n=col.count;
     for(let i=0;i<n;i++)col.setXYZ(i,MODEL_GREY.r,MODEL_GREY.g,MODEL_GREY.b);
     col.needsUpdate=!0;
   }
@@ -855,7 +910,8 @@ function simPulse(cells,t){
 
 // ── 重建影响关系缓存 (Cell位置/半径变化时调用) ──
 function rebuildFieldCache(cells,fieldRadiusU){
-  const t0=performance.now();const geo=M.geometry,pos=geo.attributes.position,n=pos.count;
+  const t0=performance.now();const H=getHeatmapMesh();if(!H)return;
+  const geo=H.geometry,pos=geo.attributes.position,n=pos.count;
   // Step1: 缓存所有顶点在cell空间的位置 (仅首次或模型变更)
   if(!_vpos||_vpos.length!==n*3){
     const tt=performance.now();_vpos=new Float32Array(n*3);
@@ -977,7 +1033,7 @@ function warmHeatColor(t){
 }
 
 function applyFieldColors(cellPressures){
-  const t0=performance.now(),geo=M.geometry,col=geo.attributes.color,pos=geo.attributes.position,n=pos.count;
+  const H=getHeatmapMesh();if(!H)return 0;const t0=performance.now(),geo=H.geometry,col=geo.attributes.color,pos=geo.attributes.position,n=pos.count;
   if(!geo.attributes.color)geo.setAttribute('color',new T.BufferAttribute(new Float32Array(n*3),3));
   const scalars=new Float32Array(n);
   const ncv=_cv.length;
@@ -1000,7 +1056,7 @@ function applyFieldColors(cellPressures){
       MODEL_GREY.b+(heat.b-MODEL_GREY.b)*alpha
     );
   }
-  col.needsUpdate=!0;M.material.vertexColors=!0;
+  col.needsUpdate=!0;H.material.vertexColors=!0;
   return performance.now()-t0;
 }
 
@@ -1039,6 +1095,7 @@ function updateHeatmap(){
   if(pkey===updateHeatmap._lastKey)return;
   updateHeatmap._lastKey=pkey;
   const ms=applyFieldColors(cellPressures);
+  if(PREVIEW){ensureHeatmapShell();syncHeatmapShellColors()}
   console.log('[perf] colors applied',ms.toFixed(0)+'ms','covered',Object.values(cellPressures).filter(v=>v!==0).length+'/'+activeCells.length+' cells','effectiveFieldR',effectiveFieldR,'boost',_fieldVisualBoost,'smooth',_fieldSmoothIters,'low',_fieldLow,'mid',_fieldMid);
 }
 
@@ -1054,24 +1111,26 @@ function togglePreview(){
   PREVIEW=!PREVIEW;const fs=D('fieldSettings');
   if(PREVIEW){
     fs.style.display='block';D('tbPreview3D').classList.add('active');
-    // 保存材质全量属性, 预览时仅开vertexColors, 不改透明度
+    ensureHeatmapShell();
     if(M&&M.material){_origMaterial={
       color:M.material.color.getHex(),opacity:M.material.opacity,
       transparent:M.material.transparent,depthWrite:M.material.depthWrite,
       depthTest:M.material.depthTest,side:M.material.side,
       blending:M.material.blending,vertexColors:M.material.vertexColors
     };
-    M.material.side=T.FrontSide;M.material.color.set(0xffffff);M.material.vertexColors=!0;
+    M.material.side=T.FrontSide;M.material.color.set(0x6f7580);M.material.opacity=1;M.material.transparent=!1;M.material.vertexColors=!0;
     if(!M.geometry.attributes.color)M.geometry.setAttribute('color',new T.BufferAttribute(new Float32Array(M.geometry.attributes.position.count*3),3));
     const fill=M.geometry.attributes.color;for(let i=0;i<fill.count;i++)fill.setXYZ(i,MODEL_GREY.r,MODEL_GREY.g,MODEL_GREY.b);fill.needsUpdate=!0;
     if('needsUpdate'in M.material)M.material.needsUpdate=!0}
-    updateHeatmap._lastKey=null;updateHeatmap();
+    if(HM){HM.visible=!0;if('needsUpdate'in HM.material)HM.material.needsUpdate=!0}
+    updateHeatmap._lastKey=null;
+    if(FIELD_MODE==='simulated'&&SIMULATE_ON){clearInterval(SIM_INTERVAL);SIM_INTERVAL=setInterval(()=>{updateSimPressures();updateHeatmap._lastKey=null;updateHeatmap()},SIM_INTERVAL_MS)}
+    else updateHeatmap();
     O.forEach(g=>g.children.forEach(ch=>{if(ch.userData&&ch.userData.isLabel)ch.material&&(ch.material.opacity=1)}));
-    if(FIELD_MODE==='simulated'&&SIMULATE_ON){HEAT_INTERVAL=setInterval(updateHeatmap,500)}
     msg('力场预览 ON | R='+FIELD_R+'mm | mode='+FIELD_MODE)}
   else{
     fs.style.display='none';D('tbPreview3D').classList.remove('active');
-    clearInterval(HEAT_INTERVAL);HEAT_INTERVAL=null;
+    clearInterval(HEAT_INTERVAL);HEAT_INTERVAL=null;clearInterval(SIM_INTERVAL);if(FIELD_MODE==='simulated'&&SIMULATE_ON)SIM_INTERVAL=null;
     O.forEach(g=>g.children.forEach(ch=>{if(ch.userData&&ch.userData.isLabel){ch.material&&(ch.material.opacity=.55)}}));
     if(M&&M.material){
       M.material.vertexColors=false;
@@ -1085,6 +1144,7 @@ function togglePreview(){
       M.material.emissive=new T.Color(0);M.material.emissiveIntensity=0;
       if('needsUpdate'in M.material)M.material.needsUpdate=!0;
     }
+    if(HM)HM.visible=!1;
     O.forEach(g=>g.children.forEach(ch=>{if(ch.userData&&ch.userData.pch){ch.material.opacity=.72;ch.material.color.set(0x4ec9b0)}if(ch.userData&&ch.userData.center){ch.material.opacity=.95;ch.material.color.set(0x4ec9b0)}if(ch.isLine){ch.material.opacity=.55;ch.material.color.set(0xffffff)}}));
     updateCellPreviewStyle({});HL();msg('退出力场预览')}
 }
@@ -1094,8 +1154,7 @@ function toggleSimulate(){
   if(SIMULATE_ON){SIMULATE_ON=!1;clearInterval(SIM_INTERVAL);SIM_INTERVAL=null;clearInterval(HEAT_INTERVAL);HEAT_INTERVAL=null;
     D('tbSimulate').classList.remove('active');D('presetRow').style.display='none';_pulseHotspots=null;msg('模拟压力已关闭')}
   else{SIMULATE_ON=!0;D('tbSimulate').classList.add('active');setFieldMode('simulated');D('presetRow').style.display='flex';
-    if(PREVIEW){SIM_INTERVAL=setInterval(()=>{updateSimPressures();updateHeatmap._lastKey=null},SIM_INTERVAL_MS);
-      HEAT_INTERVAL=setInterval(updateHeatmap,SIM_INTERVAL_MS*2)}
+    if(PREVIEW){clearInterval(SIM_INTERVAL);SIM_INTERVAL=setInterval(()=>{updateSimPressures();updateHeatmap._lastKey=null;updateHeatmap()},SIM_INTERVAL_MS)}
     msg('模拟压力已开启 ('+SIM_PRESET+' | '+SIM_INTERVAL_MS+'ms)')}
 }
 D('tbSimulate').onclick=()=>toggleSimulate();
@@ -1107,7 +1166,10 @@ D('fieldModeSelect').onchange=()=>{const mode=D('fieldModeSelect').value;
   else{SIMULATE_ON=!1;clearInterval(SIM_INTERVAL);SIM_INTERVAL=null;clearInterval(HEAT_INTERVAL);HEAT_INTERVAL=null;D('tbSimulate').classList.remove('active');D('presetRow').style.display='none';_pulseHotspots=null;setFieldMode(mode)}
   updateHeatmap._lastKey=null;if(PREVIEW)updateHeatmap()};
 
-D('fieldRadiusSlider').oninput=()=>{FIELD_R=parseInt(D('fieldRadiusSlider').value)||60;FIELD_R_USER_MODIFIED=true;D('fieldRadiusLabel').textContent=FIELD_R+'mm';invalidateFieldCache();updateHeatmap._lastKey=null;if(PREVIEW)updateHeatmap()};
+D('fieldRadiusSlider').oninput=()=>{FIELD_R=parseInt(D('fieldRadiusSlider').value)||60;FIELD_R_USER_MODIFIED=true;D('fieldRadiusLabel').textContent=FIELD_R+'mm'};
+D('fieldRadiusSlider').onchange=()=>{clearTimeout(_fieldRadiusDebounce);_fieldRadiusDebounce=setTimeout(()=>{invalidateFieldCache();updateHeatmap._lastKey=null;if(PREVIEW)updateHeatmap()},20)};
+D('fieldRadiusSlider').onmouseup=()=>D('fieldRadiusSlider').onchange();
+D('fieldRadiusSlider').ontouchend=()=>D('fieldRadiusSlider').onchange();
 // ══════════════ END Wendland 力场重建 ══════════════
 // ══════════════ END Wendland 力场重建 ══════════════
 D('tbReset').onclick=()=>{if(!RT||!CT||!CA)return;const b=new T.Box3().setFromObject(RT),sz=b.getSize(new T.Vector3()),md=Math.max(sz.x,sz.y,sz.z);CT.target.set(0,0,0);CA.position.set(md*.55,-md*0.8,md*.55);CA.lookAt(0,0,0);CT.update()};
@@ -1223,6 +1285,7 @@ window.pyCommand=function(cmd,data){
       // Item3: 资源清理
       D('fieldSettings').style.display='none';D('presetRow').style.display='none';
       if(M){if(M.geometry)M.geometry.dispose();RT.remove(M);M=null}
+      clearHeatmapShell();
       if(W){RT.remove(W);W.geometry&&W.geometry.dispose();W=null}
       O.forEach(g=>CG.remove(g));O=[];G={};A={};SURF=null;C={};F=-1;V={};selectedCells.clear();
       SC.position.set(0,0,0);SC.rotation.set(0,0,0);SC.scale.set(1,1,1);
@@ -1268,6 +1331,7 @@ window.pyCommand=function(cmd,data){
         D('propTri').value=n; D('propModel').value=name||'模型'; D('sModel').textContent=name||'模型';
         const mt=new T.MeshPhongMaterial({color:0x7f8998,specular:0x111,shininess:15,side:T.FrontSide});
         if(M){RT.remove(M);M.geometry.dispose()}
+        clearHeatmapShell();
         M=new T.Mesh(geo,mt);M.raycast=useAccel?acceleratedRaycast:T.Mesh.prototype.raycast;RT.add(M);
         C={};F=-1;_vpos=null;invalidateFieldCache();
         O.forEach(g=>CG.remove(g));O=[];G={};A={};
@@ -1467,8 +1531,9 @@ D('stlFileInput').onchange=function(e){
 function finishStandalone(geo,name,useAccel){
   if(!geo){msg('无法解析几何体','e');return}
   const n=geo.index?geo.index.count/3:geo.attributes.position.count/3;
-  const mt=new T.MeshBasicMaterial({color:0x7f8998,side:T.DoubleSide});
+  const mt=new T.MeshBasicMaterial({color:0x7f8998,side:T.FrontSide});
   if(M){RT.remove(M);M.geometry.dispose()}
+  clearHeatmapShell();
   M=new T.Mesh(geo,mt);M.raycast=useAccel?acceleratedRaycast:T.Mesh.prototype.raycast;RT.add(M);
   C={};F=-1;_vpos=null;invalidateFieldCache();
   O.forEach(g=>CG.remove(g));O=[];G={};A={};
