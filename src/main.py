@@ -360,7 +360,9 @@ class MainWindow(QMainWindow):
             return
         # 使用JS端实际unitMM, 不再依赖初始化值
         unit_mm = data.get("unit_mm") or self._project_info.get("unit_mm", 1.0)
+        cell_radius = data.get("cell_radius") or 10.0
         self._project_info["unit_mm"] = unit_mm
+        self._project_info["cell_radius"] = cell_radius
         cells_json = []
         for c in cells:
             center = c.get("center_mm") or c.get("center_3d") or {"x": 0, "y": 0, "z": 0}
@@ -381,6 +383,7 @@ class MainWindow(QMainWindow):
             "created_at": self._project_info.get("created_at", datetime.now().isoformat()),
             "total_points": total or len(cells_json),
             "unit_mm": unit_mm,
+            "cell_radius": cell_radius,
             "surface_model": {
                 "format": getattr(self, '_model_format', 'stl'),
                 "file_name": getattr(self, '_model_name', 'model.stl'),
@@ -648,6 +651,7 @@ class MainWindow(QMainWindow):
             "name": project_data.get("project_name", ""),
             "created_at": project_data.get("created_at", ""),
             "unit_mm": project_data.get("unit_mm", 1.0),
+            "cell_radius": project_data.get("cell_radius", 10.0),
             "channels": project_data.get("total_points", 200),
         }
         cells = project_data.get("cells", [])
@@ -685,6 +689,7 @@ class MainWindow(QMainWindow):
             "total_points": total,
             "format": self._model_format,
             "unit_mm": self._project_info.get("unit_mm", 1.0),
+            "cell_radius": self._project_info.get("cell_radius", 10.0),
             "schema_version": project_data.get("schema_version", 0),
             "coordinate_space": coord_space,
             "decimated": decimated,
@@ -712,6 +717,7 @@ class MainWindow(QMainWindow):
             "name": data.get("project_name", data.get("display_name", "")),
             "created_at": data.get("created_at", ""),
             "unit_mm": data.get("unit_mm", 1.0),
+            "cell_radius": data.get("cell_radius", 10.0),
             "channels": data.get("total_points", 200),
         }
         total = data.get("total_points", len(cells))

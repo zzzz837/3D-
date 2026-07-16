@@ -15,3 +15,5 @@
 /初级预览版本
 /release
 /document/update/v1.0.0/beta4/IrregularShapedLayout
+*.log
+/src/log
