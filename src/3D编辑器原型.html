@@ -75,7 +75,7 @@ body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:#1e1e1e;colo
     <div class="landed-list" id="landedTags"></div><div class="divider"></div><h3>未落地</h3>
     <div class="landed-list" id="unlandedTags"></div>
   </div>
-  <div class="viewport" id="viewport"><canvas id="canvas3D"></canvas><div class="vp-hint">左键旋转·滚轮缩放·中/右键平移·点击Cell选中·Ctrl+Click或放置模式单击添加·F聚焦·Del删除·Tab编辑预览·右键框选多选</div>
+   <div class="viewport" id="viewport"><canvas id="canvas3D"></canvas><div class="vp-hint">左键旋转·滚轮缩放·中/右键平移·点击Cell选中·Ctrl+Click或放置模式单击添加·Del删除·Tab编辑预览·右键框选多选</div>
   <div id="selBox" style="display:none;position:absolute;border:1px dashed #4ec9b0;background:rgba(78,201,176,0.08);pointer-events:none;z-index:10"></div>
   </div>
   <div class="props">
@@ -451,37 +451,57 @@ function placeCell(hit){
   const p=wpToLocal(hit.point),n=normalToLocal(faceNormalWorld(hit));
   const viewDir=normalToLocal(new T.Vector3().subVectors(CA.position,hit.point).normalize());
   if(n.dot(viewDir)<0)n.negate();
-  // 自动吸附: 沿曲面切向对齐 — 在放置点的切平面上做横向/纵向吸附
+  // 自动吸附: 沿曲面网格排列 — 切平面候选+曲面投影+3D距离验证
   const snapRange=mm2u(radius*2.5);
-  let bestDist=Infinity,bestSnap=null;
+  let bestDist=Infinity,bestSnap=null,bestSnapN=null;
   const sn=n.clone().normalize();
   const refUp=Math.abs(sn.y)<0.99?new T.Vector3(0,1,0):new T.Vector3(1,0,0);
   const hDir=new T.Vector3().crossVectors(sn,refUp).normalize();
   const vDir=new T.Vector3().crossVectors(sn,hDir).normalize();
+  // 辅助: 将切平面候选点投影到曲面
+  const _projToSurf=(pt)=>{
+    if(!M||!M.geometry||!M.geometry.boundsTree)return null;
+    const sw=localToWp(pt),sl=M.worldToLocal(sw),sr=new T.Vector3();
+    try{M.geometry.boundsTree.closestPointToPoint(sl,sr,0,mm2u(radius*6))}catch(e){}
+    if(sr.lengthSq()>1e-12)return wpToLocal(M.localToWorld(sr));return null;
+  };
+  // 验证: 指定位置与附近Cell中心距是否在[0.92*sumR, 1.08*sumR]
+  const _validPos=(pos,refC,sumR)=>{
+    const refD=new T.Vector3(pos.x-refC.x,pos.y-refC.y,pos.z-refC.z);
+    const dRef=Math.sqrt(refD.x*refD.x+refD.y*refD.y+refD.z*refD.z);
+    if(dRef<sumR*0.92||dRef>sumR*1.08)return false;
+    for(const c of Object.values(C)){
+      if(c===refC)continue;
+      const dx2=pos.x-c.x,dy2=pos.y-c.y,dz2=pos.z-c.z;
+      const d=Math.sqrt(dx2*dx2+dy2*dy2+dz2*dz2);
+      const expD=mm2u(radius+c.r);
+      if(d<expD*0.92)return false; // 重叠拒绝
+      // 仅对附近的cell检查upper bound，远处cell不限制
+      if(d<snapRange&&d>expD*1.08)return false;
+    }
+    return true;
+  };
   for(const c of Object.values(C)){
     const dx=p.x-c.x,dy=p.y-c.y,dz=p.z-c.z;
     const dist=Math.sqrt(dx*dx+dy*dy+dz*dz);
     if(dist>snapRange)continue;
     const sumR=mm2u(radius+c.r);
-    // 邻居相对于放置点的切平面坐标
     const rel=new T.Vector3(c.x-p.x,c.y-p.y,c.z-p.z);
     const cH=rel.dot(hDir),cV=rel.dot(vDir);
-    // 横向吸附: V对齐, H相切
-    {
-      const sH=cH+(cH>0?-sumR:sumR);
-      const snapPos=new T.Vector3(p.x,p.y,p.z).addScaledVector(hDir,sH).addScaledVector(vDir,cV);
-      const d2=p.distanceTo(snapPos);
-      if(d2<bestDist){bestDist=d2;bestSnap={x:snapPos.x,y:snapPos.y,z:snapPos.z};}
-    }
-    // 纵向吸附: H对齐, V相切
-    {
-      const sV=cV+(cV>0?-sumR:sumR);
-      const snapPos=new T.Vector3(p.x,p.y,p.z).addScaledVector(hDir,cH).addScaledVector(vDir,sV);
-      const d2=p.distanceTo(snapPos);
-      if(d2<bestDist){bestDist=d2;bestSnap={x:snapPos.x,y:snapPos.y,z:snapPos.z};}
+    const cands=[{h:cH-sumR,v:cV},{h:cH+sumR,v:cV},{h:cH,v:cV-sumR},{h:cH,v:cV+sumR}];
+    for(const cand of cands){
+      const tanPos=new T.Vector3(p.x,p.y,p.z).addScaledVector(hDir,cand.h).addScaledVector(vDir,cand.v);
+      const surfPos=_projToSurf(tanPos);
+      if(!surfPos)continue;
+      if(!_validPos(surfPos,c,sumR))continue;
+      // 获取吸附位置的曲面法线
+      const surfW=localToWp(surfPos);
+      const snapN=_getSurfaceNormal(surfW,sn);
+      const d2=p.distanceTo(surfPos);
+      if(d2<bestDist){bestDist=d2;bestSnap={x:surfPos.x,y:surfPos.y,z:surfPos.z};bestSnapN=snapN;}
     }
   }
-  if(bestSnap){p.x=bestSnap.x;p.y=bestSnap.y;p.z=bestSnap.z}
+  if(bestSnap){p.x=bestSnap.x;p.y=bestSnap.y;p.z=bestSnap.z;if(bestSnapN){n.copy(bestSnapN)}}
   if(collisionEnabled&&!bestSnap){
     const di=mm2u(radius*.85);
     for(const c of Object.values(C)){
@@ -654,7 +674,7 @@ cv.addEventListener('mousemove',e=>{
 
 cv.addEventListener('mouseup',e=>{
   if(dragging){
-    dragging=!1; CT.enabled=!0; cv.style.cursor='';
+    dragging=!1; CT.enabled=!MULTI; cv.style.cursor='';
     if(_multiDragOffsets&&selectedCells.size>1){
       selectedCells.forEach(id=>{
         if(!C[id])return;
@@ -687,7 +707,7 @@ cv.addEventListener('mouseup',e=>{
 });
 
 cv.addEventListener('mouseleave',()=>{
-  if(dragging){dragging=!1; CT.enabled=!0; cv.style.cursor=''; dragCellId=-1}
+  if(dragging){dragging=!1; CT.enabled=!MULTI; cv.style.cursor=''; dragCellId=-1}
 });
 document.addEventListener('keydown',e=>{
   if(e.key==='Control'){K=!0;D('sCtrl').textContent='ON';D('sCtrl').style.color='#4caf50'}
@@ -695,7 +715,6 @@ document.addEventListener('keydown',e=>{
   if(e.key==='Tab'){e.preventDefault();E=!E;D('tbEdit').textContent=E?'编辑模式':'预览模式';D('tbEdit').classList.toggle('active',E);HL();msg(E?'编辑模式 — Cell可交互':'预览模式 — Cell只读')}
   if(e.key==='Escape'){F=-1;selectedCells.clear();HL();refreshProps();refreshTable();refreshBasket()}
   if(e.key==='p'||e.key==='P'){P=!P;D('tbPlace').classList.toggle('active',P);msg(P?'放置模式：单击曲面添加Cell':'放置模式关闭')}
-  if(e.key==='f'&&F>=0&&C[F]){const c=C[F],p=localToWp(new T.Vector3(c.x,c.y,c.z));CT.target.copy(p);CA.position.set(p.x,p.y-80,p.z+50)}
   if(e.key==='h'||e.key==='H'){if(CG){CG.visible=!CG.visible;msg(CG.visible?'Cell显示':'Cell隐藏(调试)')}}
 });
 document.addEventListener('keyup',e=>{if(e.key==='Control'){K=!1;D('sCtrl').textContent='—';D('sCtrl').style.color='#999'}});
@@ -1014,7 +1033,7 @@ function updateHeatmap(){
 function setFieldMode(mode){
   FIELD_MODE=mode;D('fieldModeSelect').value=mode;
   if(mode==='simulated'){msg('模拟压力模式：Cell压力将自动动态变化')}
-  else{msg('手动压力模式：使用Cell属性面板中的压力值')}
+  else{msg('手动压力模式：使用Cell属性面板中的压力值');updateHeatmap._lastKey=null;if(PREVIEW)updateHeatmap()}
 }
 
 // ── 力场预览开关 ──
@@ -1088,7 +1107,7 @@ D('propY').onchange=()=>{if(F>=0&&C[F]){const v=parseFloat(D('propY').value);if(
 D('propZ').onchange=()=>{if(F>=0&&C[F]){const v=parseFloat(D('propZ').value);if(Number.isFinite(v)){C[F].z=mm2u(v);invalidateFieldCache();updateHeatmap._lastKey=null;addOrUpdateCell(F);refreshProps();if(PREVIEW)updateHeatmap()}else{D('propZ').value=u2mm(C[F].z).toFixed(1)}}};
 D('propRadius').onchange=()=>{const v=parseFloat(D('propRadius').value);if(v>0){const sl=setRadius(v);if(F>=0&&C[F]){C[F].r=sl;invalidateFieldCache();updateHeatmap._lastKey=null;CO();addOrUpdateCell(F);refreshProps();refreshTable();if(PREVIEW)updateHeatmap()}}else{D('propRadius').value=radius.toFixed(1);msg('半径必须大于0','w')}};
 D('propLabel').onchange=()=>{if(F>=0&&C[F]){C[F].label=D('propLabel').value.trim();addOrUpdateCell(F);refreshProps()}};
-D('propPressure').onchange=()=>{if(F>=0&&C[F]){let v=parseFloat(D('propPressure').value);v=Number.isFinite(v)?Math.max(0,Math.min(1,v)):0;D('propPressure').value=v;C[F].pressure=v;updateHeatmap._lastKey=null;if(PREVIEW)updateHeatmap()}};
+D('propPressure').onchange=()=>{if(F>=0&&C[F]){let v=parseFloat(D('propPressure').value);v=Number.isFinite(v)?Math.max(0,Math.min(1,v)):0;D('propPressure').value=v.toFixed(2);C[F].pressure=v;updateHeatmap._lastKey=null;if(PREVIEW)updateHeatmap()}};
 D('propRot').onchange=()=>{if(F>=0&&C[F]){C[F].rot=parseFloat(D('propRot').value)||0;addOrUpdateCell(F);refreshProps()}};
 D('propCollision').onchange=()=>{collisionEnabled = D('propCollision').checked; msg(collisionEnabled?'碰撞检测已开启':'碰撞检测已关闭 — Cell可重叠放置')};
 
@@ -1104,8 +1123,8 @@ function refreshBasket(){
 function applyTotalChannels(){const v=Math.round(parseFloat(D('bsTotal').value));if(!v||v<1){D('bsTotal').value=MAX||'';msg('通道数至少为1，请输入有效数字','w');return}const maxId=Math.max(-1,...Object.keys(C).map(Number));if(v>=1&&v>=maxId+1){MAX=v;updateTotals();refreshBasket();refreshTable();msg('总通道数已更新为 '+MAX)}else{D('bsTotal').value=MAX;msg('通道数需不小于 '+(maxId+1)+'（已占用最大ID+1）','w')}}
 function refreshProps(){
   const c=C[F];D('selLabel').textContent=F>=0?'(#'+F+')':'(无)';D('propId').value=F>=0?'#'+F:'—';
-  if(c){D('propX').value=u2mm(c.x).toFixed(1);D('propY').value=u2mm(c.y).toFixed(1);D('propZ').value=u2mm(c.z).toFixed(1);D('propNx').value=c.nx.toFixed(3);D('propNy').value=c.ny.toFixed(3);D('propNz').value=c.nz.toFixed(3);D('propCentroid').value='('+u2mm(c.x).toFixed(1)+','+u2mm(c.y).toFixed(1)+','+u2mm(c.z).toFixed(1)+')';D('propRadius').value=c.r.toFixed(1);D('propArea').value=cellSurfaceArea(c).toFixed(1);D('propRot').value=(c.rot||0).toFixed(1);D('propOv').value=(V[F]||1)+'层';D('propLabel').value=c.label||'';D('propPressure').value=(c.pressure!=null?c.pressure:0)}
-  else{['propX','propY','propZ','propNx','propNy','propNz','propCentroid','propArea','propOv'].forEach(id=>D(id).value='—');D('propRadius').value=radius.toFixed(1);D('propRot').value='0.0';D('propLabel').value='';D('propPressure').value='0'}
+  if(c){D('propX').value=u2mm(c.x).toFixed(1);D('propY').value=u2mm(c.y).toFixed(1);D('propZ').value=u2mm(c.z).toFixed(1);D('propNx').value=c.nx.toFixed(3);D('propNy').value=c.ny.toFixed(3);D('propNz').value=c.nz.toFixed(3);D('propCentroid').value='('+u2mm(c.x).toFixed(1)+','+u2mm(c.y).toFixed(1)+','+u2mm(c.z).toFixed(1)+')';D('propRadius').value=c.r.toFixed(1);D('propArea').value=cellSurfaceArea(c).toFixed(1);D('propRot').value=(c.rot||0).toFixed(1);D('propOv').value=(V[F]||1)+'层';D('propLabel').value=c.label||'';D('propPressure').value=(c.pressure!=null?c.pressure:0).toFixed(2)}
+  else{['propX','propY','propZ','propNx','propNy','propNz','propCentroid','propArea','propOv'].forEach(id=>D(id).value='—');D('propRadius').value=radius.toFixed(1);D('propRot').value='0.0';D('propLabel').value='';D('propPressure').value='0.00'}
 }
 function refreshTable(){
   if(MAX<=0){D('channelBody').innerHTML='<tr><td colspan="8" style="color:#666;text-align:center;padding:20px">请先导入3D模型</td></tr>';return}

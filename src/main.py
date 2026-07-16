@@ -52,8 +52,11 @@ class Bridge(QObject):
                 landed = d.get("landed",0); total = d.get("max",landed+d.get("unlanded",0))
                 self._total = max(total,1); ov = d.get("overlap",0)
                 self.statusMsg.emit(f"已落地:{landed}/{self._total} | {'重叠:'+str(ov) if ov else '无重叠'}")
+                self._model_loaded = True
+                print(f"[close-debug] state received | loading={self._loading} dirty(before)={self._dirty} model_loaded={self._model_loaded} landed={landed} total={self._total}", flush=True)
                 if not getattr(self, '_loading', False):
                     self._dirty = True
+                    print(f"[close-debug] state marked dirty=True", flush=True)
             elif e == "exportCells":
                 self.exportReady.emit(json.dumps(d))
             elif e == "screenshotData":
@@ -69,13 +72,19 @@ class Bridge(QObject):
                         self.statusMsg.emit(f"截图失败: {ex}")
             elif e == "error":
                 print(f"[JS Error] {d.get('msg','?')}", flush=True)
+                print(f"[close-debug] error event | loading was {self._loading}", flush=True)
                 QMessageBox.warning(None, "模型加载错误", d.get('msg','未知错误'))
+                self._loading = False
             elif e == "modelLoaded":
                 rec = d.get("recommendedChannels",0)
                 self.statusMsg.emit(
                     f"模型加载完成 | 面:{d.get('faces',0)} | 面积:{d.get('surfaceArea','?')}mm²"
                     + (f" | 建议通道:{rec}" if rec else "")
                 )
+                self._loading = False
+                self._dirty = False
+                self._model_loaded = True
+                print(f"[close-debug] modelLoaded received | loading={self._loading} dirty={self._dirty} model_loaded={self._model_loaded}", flush=True)
             elif e == "menuAction":
                 self.menuAction.emit(d.get("action",""))
         except Exception: pass
@@ -265,7 +274,9 @@ class MainWindow(QMainWindow):
             self.setWindowIcon(QIcon(icon_path))
 
         self._profile = None; self._current_file = None; self._dirty = False
+        self._model_loaded = False
         self._loading = False
+        self._close_after_save = False
         self._recent_files = QSettings(ORG, APP).value("recentFiles", []) or []
         self._project_info = {}  # 当前项目元信息
 
@@ -406,6 +417,10 @@ class MainWindow(QMainWindow):
             self._dirty = False
             self._sl.setText(f"已保存: {Path(path).name} ({len(cells_json)}个Cell)")
             self._log_op(f"保存项目: {Path(path).name} | {len(cells_json)}个Cell")
+            print(f"[close-debug] save completed | file={path} dirty={self._dirty} close_after_save={self._close_after_save}", flush=True)
+            if self._close_after_save:
+                self._log_op("save-complete | close_after_save=True -> calling close()")
+                self.close()
         except Exception as e:
             QMessageBox.warning(self, "保存失败", str(e))
 
@@ -581,8 +596,6 @@ class MainWindow(QMainWindow):
             "original_faces": original_faces,
             "actual_faces": actual_faces,
         })
-        QTimer.singleShot(3000, lambda: setattr(self, '_loading', False))
-        QTimer.singleShot(3500, lambda: setattr(self, '_dirty', False))
         self._current_file = None
         self._sl.setText(f"项目: {info['name']} | 模型: {model_name} | 通道: {info['channels']}")
 
@@ -597,8 +610,6 @@ class MainWindow(QMainWindow):
             if path.endswith('.3dlp'):
                 self._loading = True
                 self._open_package(path)
-                QTimer.singleShot(3000, lambda: setattr(self, '_loading', False))
-                QTimer.singleShot(3500, lambda: setattr(self, '_dirty', False))
             else:
                 self._open_legacy_json(path)
             self._current_file = path
@@ -747,10 +758,12 @@ class MainWindow(QMainWindow):
             self, "保存项目", "project.3dlp",
             "3D Layout Package (*.3dlp);;JSON (*.json)"
         )
+        print(f"[close-debug] _save_direct called | chosen_path={path!r}", flush=True)
         if not path: return
         if not (path.endswith('.3dlp') or path.endswith('.json')):
             path += '.3dlp'
         self._pending_save_path = path
+        print(f"[close-debug] pending_save_path set | {self._pending_save_path}", flush=True)
         self.bridge.cmd("exportCells")
 
     def _save_as(self):
@@ -772,22 +785,62 @@ class MainWindow(QMainWindow):
         # 让JS生成截图dataURL并通过Bridge发回
         self.bridge.cmd("screenshot", {"path": path})
 
+    def _has_open_project(self):
+        return bool(
+            getattr(self, '_model_cache_path', None)
+            or self._current_file
+            or self._project_info.get('name')
+            or self._model_loaded
+        )
+
     def _confirm_discard(self):
-        if self._dirty:
-            r = QMessageBox.question(self,"未保存更改","保存？",
-                QMessageBox.StandardButton.Save|QMessageBox.StandardButton.Discard|QMessageBox.StandardButton.Cancel)
-            if r == QMessageBox.StandardButton.Save: self._save_direct(); return True
-            elif r == QMessageBox.StandardButton.Discard: return True
+        has_project = self._has_open_project()
+        self._log_op(f"close-check | has_project={has_project} dirty={self._dirty} current_file={self._current_file} cache={getattr(self,'_model_cache_path',None)}")
+        if not has_project:
+            return True
+        box = QMessageBox(self)
+        box.setWindowTitle("关闭前保存")
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setText("当前项目将被关闭")
+        box.setInformativeText("要先保存当前项目吗？" if self._dirty else "当前项目已加载，是否先保存再关闭？")
+        save_btn = box.addButton("保存", QMessageBox.ButtonRole.AcceptRole)
+        discard_btn = box.addButton("不保存", QMessageBox.ButtonRole.DestructiveRole)
+        cancel_btn = box.addButton("取消", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(save_btn)
+        box.exec()
+        clicked = box.clickedButton()
+        self._log_op(f"close-dialog-result | clicked={'save' if clicked is save_btn else 'discard' if clicked is discard_btn else 'cancel'}")
+        if clicked is save_btn:
+            self._close_after_save = True
+            self._save_direct()
+            if not getattr(self, '_pending_save_path', None):
+                self._close_after_save = False
+                self._log_op("close-save-cancelled")
             return False
-        return True
+        if clicked is discard_btn:
+            return True
+        return False
 
     def closeEvent(self, event):
-        if self._confirm_discard():
+        self._log_op(f"closeEvent | dirty={self._dirty} close_after_save={self._close_after_save}")
+        if self._close_after_save:
+            self._log_op("closeEvent | accept after save")
+            self._close_after_save = False
+            self._model_loaded = False
             if hasattr(self, '_log_fp'):
                 try: self._log_fp.close()
                 except: pass
             event.accept()
-        else: event.ignore()
+            return
+        if self._confirm_discard():
+            self._log_op("closeEvent | accept")
+            if hasattr(self, '_log_fp'):
+                try: self._log_fp.close()
+                except: pass
+            event.accept()
+        else:
+            self._log_op("closeEvent | ignore")
+            event.ignore()
 
 
 def main():
