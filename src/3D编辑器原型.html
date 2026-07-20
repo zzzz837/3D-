@@ -70,12 +70,12 @@ body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:#1e1e1e;colo
     <h3>Cell 篮子</h3><div class="stat"><span>总通道数</span><input id="bsTotal" value="200" style="width:62px;background:#1e1e1e;border:1px solid #555;color:#4ec9b0;border-radius:3px;text-align:right;font-weight:bold"></div>
     <div class="stat"><span>未落地</span><span class="val" id="bsUnlanded">200</span></div>
     <div class="stat"><span>下一个ID</span><span class="val" id="bsNextId">#0</span></div>
-    <button class="drag-btn" id="basketDrag">← 拖出下一个</button><div class="divider"></div>
+    <button class="drag-btn" id="basketDrag">+ 新建Cell</button><div class="divider"></div>
     <h3>已落地 <span style="color:#4ec9b0;font-size:11px" id="bsLandedCnt">0</span></h3>
     <div class="landed-list" id="landedTags"></div><div class="divider"></div><h3>未落地</h3>
     <div class="landed-list" id="unlandedTags"></div>
   </div>
-   <div class="viewport" id="viewport"><canvas id="canvas3D"></canvas><div class="vp-hint">左键旋转·滚轮缩放·中/右键平移·点击Cell选中·Ctrl+Click或放置模式单击添加·Del删除·Tab编辑预览·右键框选多选</div>
+   <div class="viewport" id="viewport"><canvas id="canvas3D"></canvas><div class="vp-hint">左键旋转·滚轮缩放·右键平移 | Ctrl+Click 添加Cell | Del 删除 | Tab 编辑/预览 | W 线框 | Ctrl+Z/Y 撤销/重做 | 右键框选多选</div>
   <div id="selBox" style="display:none;position:absolute;border:1px dashed #4ec9b0;background:rgba(78,201,176,0.08);pointer-events:none;z-index:10"></div>
   </div>
   <div class="props">
@@ -102,7 +102,7 @@ body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:#1e1e1e;colo
   </div>
 </div>
 <div class="channel-table"><table><thead><tr><th>ID</th><th>落地</th><th>X</th><th>Y</th><th>Z</th><th>面积</th><th>半径</th></tr></thead><tbody id="channelBody"></tbody></table></div>
-<div class="statusbar"><span id="sModel">—</span><span>|</span><span>已落地:<b id="sLanded">0</b>/<b id="sTotal">200</b></span><span>|</span><span id="sSelected" style="color:#ffd700"></span><span>|</span><span id="sLoad">加载中...</span><span>|</span><span id="sCtrl">Ctrl:—</span></div>
+<div class="statusbar"><span id="sModel">—</span><span>|</span><span>已落地:<b id="sLanded">0</b>/<b id="sTotal">200</b></span><span>|</span><span id="sSelected" style="color:#ffd700"></span><span>|</span><span id="sLoad">加载中...</span><span>|</span><span id="sCtrl">Ctrl:OFF</span></div>
 <div class="status-msg" id="statusMsg"></div>
 <script>// Polyfill .at() for Chromium 83 (QWebEngine)
 !function(){function t(o,r){if(!o.at){var n=typeof o;Object.defineProperty(o,'at',{value:function(i){i=Math.trunc(i)||0;if(i<0)i+=this.length;return i<0||i>=this.length?r:this[i]},writable:!0,configurable:!0})}}t(Array.prototype);t(String.prototype);t(Int8Array.prototype,0);t(Uint8Array.prototype,0);t(Uint8ClampedArray.prototype,0);t(Int16Array.prototype,0);t(Uint16Array.prototype,0);t(Int32Array.prototype,0);t(Uint32Array.prototype,0);t(Float32Array.prototype,0);t(Float64Array.prototype,0)}();</script>
@@ -671,11 +671,6 @@ cv.addEventListener('mousemove',e=>{
     }
     return;
   }
-  // 正常鼠标移动: 仅保留内部pick节流，不再显示曲面坐标
-  const now=performance.now();if(now-lastMousePick<66)return;lastMousePick=now;
-  const r=cv.getBoundingClientRect(),m=new T.Vector2((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1);
-  RY.setFromCamera(m,CA);
-  RY.intersectObject(M,!1);
 });
 
 cv.addEventListener('mouseup',e=>{
@@ -721,9 +716,13 @@ document.addEventListener('keydown',e=>{
   if(e.key==='Tab'){e.preventDefault();E=!E;D('tbEdit').textContent=E?'编辑模式':'预览模式';D('tbEdit').classList.toggle('active',E);HL();msg(E?'编辑模式 — Cell可交互':'预览模式 — Cell只读')}
   if(e.key==='Escape'){F=-1;selectedCells.clear();HL();refreshProps();refreshTable();refreshBasket()}
   if(e.key==='p'||e.key==='P'){P=!P;D('tbPlace').classList.toggle('active',P);msg(P?'放置模式：单击曲面添加Cell':'放置模式关闭')}
-  if(e.key==='h'||e.key==='H'){if(CG){CG.visible=!CG.visible;msg(CG.visible?'Cell显示':'Cell隐藏(调试)')}}
+  if(e.key==='h'||e.key==='H'){if(CG){CG.visible=!CG.visible;msg(CG.visible?'Cell显示':'Cell隐藏（调试）')}}
+  if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault();if(selectedCells.size>1){snapShot();selectedCells.forEach(id=>{delete C[id];removeCellMesh(id)});selectedCells.clear();F=-1;invalidateFieldCache();updateHeatmap._lastKey=null;CO();HL();refreshBasket();refreshTable();refreshProps()}else if(F>=0){snapShot();const id=F;delete C[id];removeCellMesh(id);F=-1;invalidateFieldCache();updateHeatmap._lastKey=null;CO();HL();refreshBasket();refreshTable();refreshProps()}}
+  if((e.ctrlKey||e.metaKey)&&e.key==='z'){e.preventDefault();if(REDO.length){UNDO.push(JSON.stringify({MAX,radius,C,F,unitMM}));restoreState(REDO.pop())}}
+  if((e.ctrlKey||e.metaKey)&&e.key==='y'){e.preventDefault();if(UNDO.length){REDO.push(JSON.stringify({MAX,radius,C,F,unitMM}));restoreState(UNDO.pop())}}
+  if(e.key==='w'||e.key==='W'){e.preventDefault();if(!M||!RT)return;if(!W){W=new T.LineSegments(new T.WireframeGeometry(M.geometry),new T.LineBasicMaterial({color:0xdfe9ff,transparent:!0,opacity:.20}));W.visible=true;RT.add(W)}else{W.visible=!W.visible}D('tbWire').classList.toggle('active',!!W.visible);_needsRender=true}
 });
-document.addEventListener('keyup',e=>{if(e.key==='Control'){K=!1;D('sCtrl').textContent='—';D('sCtrl').style.color='#999'}});
+document.addEventListener('keyup',e=>{if(e.key==='Control'){K=!1;D('sCtrl').textContent='OFF';D('sCtrl').style.color='#999'}});
 
 // ══════════ 菜单栏下拉 ══════════
 document.querySelectorAll('.menubar .menu-item').forEach(item=>{
@@ -871,12 +870,12 @@ function rebuildFieldCache(cells,fieldRadiusU){
   if(!_ioff||_ioff.length!==n+1){_ioff=new Uint32Array(n+1)}
   const coveredTemp=[];
   let total=0;
-  for(let i=0;i<n;i++){const lx=_vpos[i*3],ly=_vpos[i*3+1],lz=_vpos[i*3+2],nb=queryBucketCells(lx,ly,lz);let cnt=0;for(const c of nb){cellP.set(c.x,c.y,c.z);const dx=lx-c.x,dy=ly-c.y,dz=lz-c.z,d=Math.sqrt(dx*dx+dy*dy+dz*dz);if(d>fieldRadiusU)continue;const r=d/fieldRadiusU;if(wendlandPhi(r)>1e-8)cnt++}_ioff[i]=cnt;total+=cnt;if(cnt>0)coveredTemp.push(i)}
+  for(let i=0;i<n;i++){const lx=_vpos[i*3],ly=_vpos[i*3+1],lz=_vpos[i*3+2],nb=queryBucketCells(lx,ly,lz);let cnt=0;for(const c of nb){cellP.set(c.x,c.y,c.z);const dx=lx-c.x,dy=ly-c.y,dz=lz-c.z,d=Math.sqrt(dx*dx+dy*dy+dz*dz);if(d>fieldRadiusU)continue;const r=d/fieldRadiusU;const vnx=geo.attributes.normal?geo.attributes.normal.getX(i):0,vny=geo.attributes.normal?geo.attributes.normal.getY(i):1,vnz=geo.attributes.normal?geo.attributes.normal.getZ(i):0;const nd=vnx*c.nx+vny*c.ny+vnz*c.nz;if(nd<0.1)continue;if(wendlandPhi(r)>1e-8)cnt++}_ioff[i]=cnt;total+=cnt;if(cnt>0)coveredTemp.push(i)}
   _ioff[n]=total;
   if(!_icell||_icell.length<total){_icell=new Uint32Array(Math.max(total,1));_iwgt=new Float32Array(Math.max(total,1))}
   _cv=coveredTemp.length?new Uint32Array(coveredTemp):new Uint32Array(0);
   let off=0;
-  for(let i=0;i<n;i++){const cnt=_ioff[i];_ioff[i]=off;const lx=_vpos[i*3],ly=_vpos[i*3+1],lz=_vpos[i*3+2],nb=queryBucketCells(lx,ly,lz);for(const c of nb){cellP.set(c.x,c.y,c.z);const dx=lx-c.x,dy=ly-c.y,dz=lz-c.z,d=Math.sqrt(dx*dx+dy*dy+dz*dz);if(d>fieldRadiusU)continue;const r=d/fieldRadiusU,w=wendlandPhi(r);if(w>1e-8){_icell[off]=c.id;_iwgt[off]=w;off++}}}
+  for(let i=0;i<n;i++){const cnt=_ioff[i];_ioff[i]=off;const lx=_vpos[i*3],ly=_vpos[i*3+1],lz=_vpos[i*3+2],nb=queryBucketCells(lx,ly,lz);for(const c of nb){cellP.set(c.x,c.y,c.z);const dx=lx-c.x,dy=ly-c.y,dz=lz-c.z,d=Math.sqrt(dx*dx+dy*dy+dz*dz);if(d>fieldRadiusU)continue;const r=d/fieldRadiusU,w=wendlandPhi(r);const vnx=geo.attributes.normal?geo.attributes.normal.getX(i):0,vny=geo.attributes.normal?geo.attributes.normal.getY(i):1,vnz=geo.attributes.normal?geo.attributes.normal.getZ(i):0;const nd=vnx*c.nx+vny*c.ny+vnz*c.nz;if(nd<0.1||w<=1e-8)continue;_icell[off]=c.id;_iwgt[off]=w;off++}}
   _cacheOk=!0;_cacheFR=fieldRadiusU;col.needsUpdate=!0;
   // 构建顶点邻接表(一次, 用于平滑)
   if(!_adj||_adj.length!==n){_adj=buildVertexAdjacency(geo,n)}
@@ -955,24 +954,6 @@ function smoothScalars(scalars,n,iterations){
 
 // ── 双层着色: 核心暖色斑 + 灰色过渡外圈 ──
 // 暖色单相: 灰→浅橙→橙→深红 (首色非灰, 确保可见)
-function warmHeatColor(t){
-  t=Math.max(0,Math.min(1,t));
-  const stops=[
-    [0.00,new T.Color(0x7f8998)],
-    [0.18,new T.Color(0xe0a890)],
-    [0.45,new T.Color(0xf08060)],
-    [0.75,new T.Color(0xf05040)],
-    [1.00,new T.Color(0xe83030)],
-  ];
-  for(let i=1;i<stops.length;i++){
-    if(t<=stops[i][0]){
-      const a=stops[i-1],b=stops[i],u=(t-a[0])/(b[0]-a[0]);
-      return a[1].clone().lerp(b[1],u);
-    }
-  }
-  return stops[stops.length-1][1].clone();
-}
-
 function applyFieldColors(cellPressures){
   const t0=performance.now(),geo=M.geometry,col=geo.attributes.color,pos=geo.attributes.position,n=pos.count;
   if(!geo.attributes.color)geo.setAttribute('color',new T.BufferAttribute(new Float32Array(n*3),3));
@@ -1064,11 +1045,11 @@ function togglePreview(){
     if('needsUpdate'in M.material)M.material.needsUpdate=!0}
     updateHeatmap._lastKey=null;updateHeatmap();
     O.forEach(g=>g.children.forEach(ch=>{if(ch.userData&&ch.userData.isLabel)ch.material&&(ch.material.opacity=1)}));
-    if(FIELD_MODE==='simulated'&&SIMULATE_ON){HEAT_INTERVAL=setInterval(updateHeatmap,500)}
+    if(FIELD_MODE==='simulated'&&SIMULATE_ON){clearInterval(SIM_INTERVAL);SIM_INTERVAL=setInterval(()=>{updateSimPressures();updateHeatmap._lastKey=null},SIM_INTERVAL_MS);clearInterval(HEAT_INTERVAL);HEAT_INTERVAL=setInterval(updateHeatmap,SIM_INTERVAL_MS*2)}
     msg('力场预览 ON | R='+FIELD_R+'mm | mode='+FIELD_MODE)}
   else{
     fs.style.display='none';D('tbPreview3D').classList.remove('active');
-    clearInterval(HEAT_INTERVAL);HEAT_INTERVAL=null;
+    clearInterval(HEAT_INTERVAL);HEAT_INTERVAL=null;clearInterval(SIM_INTERVAL);SIM_INTERVAL=null;
     O.forEach(g=>g.children.forEach(ch=>{if(ch.userData&&ch.userData.isLabel){ch.material&&(ch.material.opacity=.55)}}));
     if(M&&M.material){
       M.material.vertexColors=false;
@@ -1091,8 +1072,7 @@ function toggleSimulate(){
   if(SIMULATE_ON){SIMULATE_ON=!1;clearInterval(SIM_INTERVAL);SIM_INTERVAL=null;clearInterval(HEAT_INTERVAL);HEAT_INTERVAL=null;
     D('tbSimulate').classList.remove('active');D('presetRow').style.display='none';_pulseHotspots=null;msg('模拟压力已关闭')}
   else{SIMULATE_ON=!0;D('tbSimulate').classList.add('active');setFieldMode('simulated');D('presetRow').style.display='flex';
-    if(PREVIEW){SIM_INTERVAL=setInterval(()=>{updateSimPressures();updateHeatmap._lastKey=null},SIM_INTERVAL_MS);
-      HEAT_INTERVAL=setInterval(updateHeatmap,SIM_INTERVAL_MS*2)}
+    if(PREVIEW){clearInterval(SIM_INTERVAL);SIM_INTERVAL=setInterval(()=>{updateSimPressures();updateHeatmap._lastKey=null},SIM_INTERVAL_MS);clearInterval(HEAT_INTERVAL);HEAT_INTERVAL=setInterval(updateHeatmap,SIM_INTERVAL_MS*2)}
     msg('模拟压力已开启 ('+SIM_PRESET+' | '+SIM_INTERVAL_MS+'ms)')}
 }
 D('tbSimulate').onclick=()=>toggleSimulate();
@@ -1112,12 +1092,12 @@ D('tbEdit').onclick=()=>{E=!E;D('tbEdit').textContent=E?'编辑模式':'预览�
 D('tbPlace').onclick=()=>{P=!P;D('tbPlace').classList.toggle('active',P);if(P&&!E){E=!0;D('tbEdit').textContent='编辑模式';D('tbEdit').classList.add('active')}msg(P?'放置模式：单击曲面添加Cell；再次点击关闭':'放置模式关闭')};
 D('tbMultiMove').onclick=()=>{MULTI=!MULTI;D('tbMultiMove').classList.toggle('active',MULTI);if(MULTI){CT.enabled=!1}else{CT.enabled=!0}msg(MULTI?'选中模式：左键点选/拖拽，Shift追加，右键框选':'选中模式关闭')};
 D('basketDrag').onclick=()=>{const id=getFreeId();if(id<0){msg('篮子已满','w');return}msg('Cell #'+id+' 已创建，Ctrl+Click放到曲面')};
-D('propX').onchange=()=>{if(F>=0&&C[F]){const v=parseFloat(D('propX').value);if(Number.isFinite(v)){C[F].x=mm2u(v);invalidateFieldCache();updateHeatmap._lastKey=null;addOrUpdateCell(F);refreshProps();if(PREVIEW)updateHeatmap()}else{D('propX').value=u2mm(C[F].x).toFixed(1)}}};
-D('propY').onchange=()=>{if(F>=0&&C[F]){const v=parseFloat(D('propY').value);if(Number.isFinite(v)){C[F].y=mm2u(v);invalidateFieldCache();updateHeatmap._lastKey=null;addOrUpdateCell(F);refreshProps();if(PREVIEW)updateHeatmap()}else{D('propY').value=u2mm(C[F].y).toFixed(1)}}};
-D('propZ').onchange=()=>{if(F>=0&&C[F]){const v=parseFloat(D('propZ').value);if(Number.isFinite(v)){C[F].z=mm2u(v);invalidateFieldCache();updateHeatmap._lastKey=null;addOrUpdateCell(F);refreshProps();if(PREVIEW)updateHeatmap()}else{D('propZ').value=u2mm(C[F].z).toFixed(1)}}};
-D('propRadius').onchange=()=>{const v=parseFloat(D('propRadius').value);if(v>0){const sl=setRadius(v);if(F>=0&&C[F]){C[F].r=sl;invalidateFieldCache();updateHeatmap._lastKey=null;CO();addOrUpdateCell(F);refreshProps();refreshTable();if(PREVIEW)updateHeatmap()}}else{D('propRadius').value=radius.toFixed(1);msg('半径必须大于0','w')}};
-D('propLabel').onchange=()=>{if(F>=0&&C[F]){C[F].label=D('propLabel').value.trim();addOrUpdateCell(F);refreshProps()}};
-D('propPressure').onchange=()=>{if(F>=0&&C[F]){let v=parseFloat(D('propPressure').value);v=Number.isFinite(v)?Math.max(0,Math.min(1,v)):0;D('propPressure').value=v.toFixed(2);C[F].pressure=v;updateHeatmap._lastKey=null;if(PREVIEW)updateHeatmap()}};
+D('propX').onchange=()=>{if(F>=0&&C[F]){const v=parseFloat(D('propX').value);if(Number.isFinite(v)){snapShot();C[F].x=mm2u(v);invalidateFieldCache();updateHeatmap._lastKey=null;addOrUpdateCell(F);refreshProps();if(PREVIEW)updateHeatmap()}else{D('propX').value=u2mm(C[F].x).toFixed(1)}}};
+D('propY').onchange=()=>{if(F>=0&&C[F]){const v=parseFloat(D('propY').value);if(Number.isFinite(v)){snapShot();C[F].y=mm2u(v);invalidateFieldCache();updateHeatmap._lastKey=null;addOrUpdateCell(F);refreshProps();if(PREVIEW)updateHeatmap()}else{D('propY').value=u2mm(C[F].y).toFixed(1)}}};
+D('propZ').onchange=()=>{if(F>=0&&C[F]){const v=parseFloat(D('propZ').value);if(Number.isFinite(v)){snapShot();C[F].z=mm2u(v);invalidateFieldCache();updateHeatmap._lastKey=null;addOrUpdateCell(F);refreshProps();if(PREVIEW)updateHeatmap()}else{D('propZ').value=u2mm(C[F].z).toFixed(1)}}};
+D('propRadius').onchange=()=>{const v=parseFloat(D('propRadius').value);if(v>0){const sl=setRadius(v);if(F>=0&&C[F]){snapShot();C[F].r=sl;invalidateFieldCache();updateHeatmap._lastKey=null;CO();addOrUpdateCell(F);refreshProps();refreshTable();if(PREVIEW)updateHeatmap()}}else{D('propRadius').value=radius.toFixed(1);msg('半径必须大于0','w')}};
+D('propLabel').onchange=()=>{if(F>=0&&C[F]){snapShot();C[F].label=D('propLabel').value.trim();addOrUpdateCell(F);refreshProps()}};
+D('propPressure').onchange=()=>{if(F>=0&&C[F]){let v=parseFloat(D('propPressure').value);v=Number.isFinite(v)?Math.max(0,Math.min(1,v)):0;snapShot();D('propPressure').value=v.toFixed(2);C[F].pressure=v;updateHeatmap._lastKey=null;if(PREVIEW)updateHeatmap()}};
 D('propCollision').onchange=()=>{collisionEnabled = D('propCollision').checked; msg(collisionEnabled?'碰撞检测已开启':'碰撞检测已关闭 — Cell可重叠放置')};
 
 // UI
@@ -1162,9 +1142,9 @@ let _resizeTimer=null;window.addEventListener('resize',()=>{clearTimeout(_resize
 
 // 按需渲染：只在操作时或预览时渲染，消除空闲抖动
 let _needsRender=true;
-let _renderFrames=0;
+let _renderFrames=0,_zoomUpdateTs=0;
 if(CT)CT.addEventListener('change',()=>{_lastCameraChangeTs=performance.now();_needsRender=true});
-function renderLoop(){requestAnimationFrame(renderLoop);if(!R||!SC||!CA)return;if(_needsRender||_renderFrames>0||PREVIEW||dragging){CT.update();R.render(SC,CA);if(_needsRender){_needsRender=!1;_renderFrames=1;}else _renderFrames--;}}
+function renderLoop(){requestAnimationFrame(renderLoop);if(!R||!SC||!CA)return;const now=performance.now();if(now-_zoomUpdateTs>500&&CA&&CT){_zoomUpdateTs=now;const d=CA.position.distanceTo(CT.target);D('topZoom').textContent=d<1000?d.toFixed(0)+'u':(d/1000).toFixed(1)+'k u'}if(_needsRender||_renderFrames>0||PREVIEW||dragging){CT.update();R.render(SC,CA);if(_needsRender){_needsRender=!1;_renderFrames=1;}else _renderFrames--;}}
 renderLoop();
 ['click','mousemove','wheel'].forEach(e=>document.addEventListener(e,()=>{_needsRender=true}));
 
@@ -1219,6 +1199,8 @@ window.pyCommand=function(cmd,data){
       stopAllLoops();_sessionId++;const thisSession=_sessionId;
       // Item3: 资源清理
       D('fieldSettings').style.display='none';D('presetRow').style.display='none';
+      const prevCellCount=Object.keys(C).length;
+      if(prevCellCount>0)msg('导入新模型，已清除 '+prevCellCount+' 个已有Cell','w');
       if(M){if(M.geometry)M.geometry.dispose();RT.remove(M);M=null}
       if(W){RT.remove(W);W.geometry&&W.geometry.dispose();W=null}
       O.forEach(g=>CG.remove(g));O=[];G={};A={};SURF=null;C={};F=-1;V={};selectedCells.clear();
