@@ -353,7 +353,7 @@ function BC(id){
   const ov=V[id]||1,io=ov>1;let col=new T.Color(0x4ec9b0),op=.72,bc=0xffffff,bo=.55;
   if(io){const sv=Math.min(1,(ov-1)/4);col=new T.Color(1,.35*(1-sv),.1*(1-sv));op=.82+sv*.12;bc=0xff4444;bo=.85}
   const mt=new T.MeshPhongMaterial({color:col,specular:0x111,shininess:25,transparent:!0,opacity:op,side:T.DoubleSide,depthTest:!1,depthWrite:!1,polygonOffset:!0,polygonOffsetFactor:-2,polygonOffsetUnits:-1});
-  const ph=new T.Mesh(geo,mt);ph.renderOrder=1;ph.userData={id,pch:!0};
+  const ph=new T.Mesh(geo,mt);ph.renderOrder=5;ph.userData={id,pch:!0};
   ph.position.copy(ps.clone().addScaledVector(nm,off));
   ph.quaternion.setFromUnitVectors(new T.Vector3(0,0,1),nm);ph.rotateZ(T.MathUtils.degToRad(c.rot||0));
   const pa=geo.attributes.position; // Q40: 提升到函数作用域
@@ -794,13 +794,14 @@ function ensureHeatmapShell(){
 }
 function clearHeatmapShell(){if(HM){if(HM.parent)HM.parent.remove(HM);HM.geometry.dispose();HM.material.dispose();HM=null}_shaderUniforms=null}
 function getHeatmapMesh(){return M}
-let _texKey="";
+let _texKey="",_texLastTs=0;
 function syncHeatmapShellColors(){
   if(!_shaderUniforms||!HM)return;
+  const now=performance.now();
   const cells=Object.values(C);const count=Math.min(cells.length,2048);
   const key=count+":"+cells.reduce((s,c,i)=>s+(i<32?(c.pressure||0).toFixed(2):0),0);
-  if(key===_texKey)return;
-  _texKey=key;
+  if(key===_texKey&&now-_texLastTs<300)return;
+  _texKey=key;_texLastTs=now;
   _shaderUniforms.uCellCount.value=count;
   const tex=_shaderUniforms.uCellTex.value;
   if(!tex)return;
