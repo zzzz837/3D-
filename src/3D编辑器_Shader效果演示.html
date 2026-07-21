@@ -784,11 +784,11 @@ function ensureHeatmapShell(){
   const off=mm2u(0.6);
   for(let i=0;i<pos.count;i++)pos.setXYZ(i,pos.getX(i)+nrm.getX(i)*off,pos.getY(i)+nrm.getY(i)*off,pos.getZ(i)+nrm.getZ(i)*off);
   pos.needsUpdate=true;
-  const vs="varying vec3 vWP;void main(){vec4 wp=modelMatrix*vec4(position,1.0);vWP=wp.xyz;gl_Position=projectionMatrix*viewMatrix*wp;}";
-  const fs="varying vec3 vWP;uniform int uCellCount;uniform sampler2D uCellTex;uniform float uCellTexW;uniform float uOp;float wd(float r){if(r>=1.0)return 0.0;float t=1.0-r;return t*t*t*t*(4.0*r+1.0);}vec3 hc(float t){t=clamp(t,0.0,1.0);vec3 c0=vec3(0.02,0.15,0.47),c1=vec3(0.04,0.45,0.88),c2=vec3(0.03,0.72,0.85),c3=vec3(0.12,0.84,0.55),c4=vec3(0.69,0.89,0.25),c5=vec3(1.0,0.85,0.08),c6=vec3(1.0,0.47,0.05),c7=vec3(1.0,0.13,0.03),c8=vec3(1.0,0.97,0.65);if(t<=0.14)return mix(c0,c1,t/0.14);if(t<=0.30)return mix(c1,c2,(t-0.14)/0.16);if(t<=0.46)return mix(c2,c3,(t-0.30)/0.16);if(t<=0.63)return mix(c3,c4,(t-0.46)/0.17);if(t<=0.78)return mix(c4,c5,(t-0.63)/0.15);if(t<=0.89)return mix(c5,c6,(t-0.78)/0.11);if(t<=0.975)return mix(c6,c7,(t-0.89)/0.085);return mix(c7,c8,(t-0.975)/0.025);}void main(){vec3 ha=vec3(0.0);float ws=0.0,mw=0.0;for(int i=0;i<2048;i++){if(i>=uCellCount)break;float tx=(float(i)*2.0+0.5)/uCellTexW;vec4 d0=texture2D(uCellTex,vec2(tx,0.5));float tx2=(float(i)*2.0+1.5)/uCellTexW;vec4 d1=texture2D(uCellTex,vec2(tx2,0.5));vec3 cp=d0.xyz;float cr=d0.w;float cp_p=d1.x;float d=length(vWP-cp);float r=d/max(cr,1e-6);float w=wd(r);float p=clamp(cp_p,0.0,1.0);mw=max(mw,w);float sig_i=p*w;ha+=hc(sig_i)*w;ws+=w;}float a=smoothstep(0.0,0.002,mw)*0.01+smoothstep(0.002,0.25,mw)*uOp;gl_FragColor=vec4(ws>0.0?ha/ws:vec3(0.4),a);}";
+  const vs="varying vec3 vWP;varying vec3 vWN;void main(){vec4 wp=modelMatrix*vec4(position,1.0);vWP=wp.xyz;vWN=normalize(mat3(modelMatrix)*normal);gl_Position=projectionMatrix*viewMatrix*wp;}";
+  const fs="varying vec3 vWP;varying vec3 vWN;uniform int uCellCount;uniform sampler2D uCellTex;uniform float uCellTexW;uniform float uOp;float wd(float r){if(r>=1.0)return 0.0;float t=1.0-r;return t*t*t*t*(4.0*r+1.0);}vec3 hc(float t){t=clamp(t,0.0,1.0);vec3 c0=vec3(0.05,0.25,0.75),c1=vec3(0.08,0.55,0.95),c2=vec3(0.90,0.75,0.10),c3=vec3(1.0,0.35,0.03),c4=vec3(1.0,0.05,0.01);if(t<=0.20)return mix(c0,c1,t/0.20);if(t<=0.50)return mix(c1,c2,(t-0.20)/0.30);if(t<=0.70)return mix(c2,c3,(t-0.50)/0.20);return mix(c3,c4,(t-0.70)/0.30);}void main(){vec3 ha=vec3(0.0);float ws=0.0,mw=0.0;for(int i=0;i<2048;i++){if(i>=uCellCount)break;float tx=(float(i)*2.0+0.5)/uCellTexW;vec4 d0=texture2D(uCellTex,vec2(tx,0.5));float tx2=(float(i)*2.0+1.5)/uCellTexW;vec4 d1=texture2D(uCellTex,vec2(tx2,0.5));vec3 cp=d0.xyz;float cr=d0.w;float cp_p=d1.x;float d=length(vWP-cp);float r=d/max(cr,1e-6);float w=wd(r);float p=clamp(cp_p,0.0,1.0);mw=max(mw,w);ha+=hc(p)*w;ws+=w;}float cf=min(ws*1.8,1.0);vec3 grey=vec3(0.33,0.36,0.39);vec3 heat=ws>0.0?ha/ws:grey;vec3 result=grey+(heat-grey)*cf;vec3 N=normalize(vWN);float NdotL=max(dot(N,normalize(vec3(0.6,-0.8,0.5))),0.0);float lit=0.40+0.60*NdotL;result*=lit;float a=smoothstep(0.0,0.002,mw)*0.01+smoothstep(0.002,0.25,mw)*uOp;gl_FragColor=vec4(result,a);}";
   const texData=new Float32Array(2048*8);
   const cellTex=new T.DataTexture(texData,4096,1,T.RGBAFormat,T.FloatType);  cellTex.minFilter=T.NearestFilter;cellTex.magFilter=T.NearestFilter;cellTex.needsUpdate=true;
-  const u={uCellCount:{value:0},uCellTex:{value:cellTex},uCellTexW:{value:4096},uOp:{value:0.85}};
+  const u={uCellCount:{value:0},uCellTex:{value:cellTex},uCellTexW:{value:4096},uOp:{value:1.0}};
   HM=new T.Mesh(geo,new T.ShaderMaterial({uniforms:u,vertexShader:vs,fragmentShader:fs,transparent:true,depthWrite:false,depthTest:true,side:T.FrontSide}));
   HM.renderOrder=3;HM.visible=false;RT.add(HM);_shaderUniforms=u;return HM;
 }
@@ -863,14 +863,16 @@ function updateSimPressures(){
   if(SIM_PRESET==='uniform')simUniform(cells,t);
   else if(SIM_PRESET==='pulse')simPulse(cells,t);
   else simWave(cells,t);
+  // No temporal smoothing — let wave run at full speed for visible effect
 }
 function simUniform(cells,t){
-  cells.forEach(c=>{c.pressure=Math.max(0,Math.min(1,0.2+0.6*(0.5+0.5*Math.sin(t*1.0))))});
+  const v=0.2+0.8*(0.5+0.5*Math.sin(t*0.6));
+  cells.forEach(c=>{c.pressure=Math.max(0,Math.min(1,v))});
 }
 function simWave(cells,t){
   cells.forEach(c=>{
-    const phase=(c.id+1)*0.73,freq=0.3+(c.id%7)*0.15;
-    c.pressure=Math.max(0,Math.min(1,0.15+0.7*(0.5+0.5*Math.sin(t*freq+phase))));
+    const phase=(c.id+1)*0.73;
+    c.pressure=Math.max(0,Math.min(1,0.15+0.85*(0.5+0.5*Math.sin(t*0.8+phase))));
   });
 }
 let _pulseHotspots=null,_pulseTimer=0,_pulseCycle=0;
@@ -996,12 +998,12 @@ function smoothScalars(scalars,n,iterations){
 function applyFieldColors(cellPressures){return 0}
 
 // ── 预览时Cell: 隐藏圆盘, 保留中心点和标签 ──
-function updateCellPreviewStyle(cellPressures){cellPressures=cellPressures||{};
+function updateCellPreviewStyle(cellPressures){cellPressures=cellPressures||getCellPressures(Object.values(C));
   O.forEach(g=>{
     const id=g.userData.id,cp=Math.max(0,Math.min(1,cellPressures[id]||0));
     g.children.forEach(ch=>{
-      if(ch.userData&&ch.userData.pch){ch.visible=!0;ch.material.visible=!0;ch.material.opacity=.88;ch.material.color.set(0x3080d0)}
-      if(ch.userData&&ch.userData.center){ch.visible=!0;ch.material.opacity=PREVIEW?.82:.95;ch.material.color.set(PREVIEW?jetColor(cp):(V[id]>1?0xff4444:0x4ec9b0))}
+      if(ch.userData&&ch.userData.pch){ch.visible=!0;ch.material.visible=!0;ch.material.opacity=.92;const r=cp,b=1-cp;ch.material.color.set(new T.Color(cp,0.05*(1-cp),0.7*(1-cp)))}
+      if(ch.userData&&ch.userData.center){ch.visible=!0;ch.material.opacity=PREVIEW?.82:.95;ch.material.color.set(PREVIEW?new T.Color(cp,0.05*(1-cp),0.7*(1-cp)):(V[id]>1?0xff4444:0x4ec9b0))}
       if(ch.userData&&ch.userData.isLabel){ch.visible=!0;ch.material.opacity=PREVIEW?.9:.55}
     });
     const ed=g.children.find(ch=>ch.isLine);if(ed){ed.visible=!PREVIEW;if(!PREVIEW)ed.material.opacity=.55}
@@ -1056,6 +1058,7 @@ function togglePreview(){
     M.material.side=T.FrontSide;M.material.color.set(0x555d65);M.material.vertexColors=!1;
     if('needsUpdate'in M.material)M.material.needsUpdate=!0}
     ensureHeatmapShell();if(HM)HM.visible=true;
+    updateCellPreviewStyle();HL();
     updateHeatmap._lastKey=null;updateHeatmap();
     O.forEach(g=>g.children.forEach(ch=>{if(ch.userData&&ch.userData.isLabel)ch.material&&(ch.material.opacity=1)}));
     if(FIELD_MODE==='simulated'&&SIMULATE_ON){clearInterval(SIM_INTERVAL);SIM_INTERVAL=setInterval(()=>{updateSimPressures();updateHeatmap._lastKey=null},SIM_INTERVAL_MS);clearInterval(HEAT_INTERVAL);HEAT_INTERVAL=setInterval(updateHeatmap,SIM_INTERVAL_MS*2)}
