@@ -310,7 +310,7 @@ class MainWindow(QMainWindow):
 
         root = find_root()
         print(f"[init] find_root() = {root}", flush=True)
-        html_path = os.path.join(root, "src", "3D编辑器原型.html")
+        html_path = os.path.join(root, "src", "3D编辑器_Shader效果演示.html")
         print(f"[init] html_path = {html_path}", flush=True)
         if not os.path.isfile(html_path):
             QMessageBox.critical(self, "错误", f"找不到:\n{html_path}"); return
@@ -322,7 +322,7 @@ class MainWindow(QMainWindow):
         print(f"[init] HTTP port = {port}", flush=True)
 
         import urllib.parse as _up
-        url_path = _up.quote("src/3D编辑器原型.html")
+        url_path = _up.quote("src/3D编辑器_Shader效果演示.html")
         url = f"http://127.0.0.1:{port}/{url_path}"
         print(f"[init] loading URL = {url}", flush=True)
 
