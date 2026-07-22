@@ -34,6 +34,7 @@ class Bridge(QObject):
     statusMsg = pyqtSignal(str)
     exportReady = pyqtSignal(str)
     menuAction = pyqtSignal(str)
+    recordData = pyqtSignal(str, int)
     def __init__(self, parent=None):
         super().__init__(parent); self._wv = None; self._total = 0
     def set_wv(self, wv): self._wv = wv
@@ -70,6 +71,8 @@ class Bridge(QObject):
                         self.statusMsg.emit(f"截图已保存: {Path(path).name}")
                     except Exception as ex:
                         self.statusMsg.emit(f"截图失败: {ex}")
+            elif e == "recordSave":
+                self.recordData.emit(d.get("data",""), d.get("size",0))
             elif e == "error":
                 print(f"[JS Error] {d.get('msg','?')}", flush=True)
                 print(f"[close-debug] error event | loading was {self._loading}", flush=True)
@@ -284,6 +287,7 @@ class MainWindow(QMainWindow):
         self.bridge.exportReady.connect(self._on_export)
         self.bridge.statusMsg.connect(lambda m: self._sl.setText(m))
         self.bridge.menuAction.connect(self._on_menu_action)
+        self.bridge.recordData.connect(self._on_record_data)
 
         self._init_toolbar()
         self._init_webview()
@@ -423,6 +427,17 @@ class MainWindow(QMainWindow):
                 self.close()
         except Exception as e:
             QMessageBox.warning(self, "保存失败", str(e))
+
+    def _on_record_data(self, b64_data, size):
+        from PyQt5.QtWidgets import QFileDialog
+        import base64
+        path, _ = QFileDialog.getSaveFileName(self, "保存录制", "recording.webm", "WebM (*.webm)")
+        if path:
+            try:
+                Path(path).write_bytes(base64.b64decode(b64_data))
+                self._sl.setText(f"录制已保存: {Path(path).name}")
+            except Exception as ex:
+                QMessageBox.warning(self, "保存失败", str(ex))
 
     def _save_package(self, path, project):
         model_name = project["surface_model"]["file_name"]
