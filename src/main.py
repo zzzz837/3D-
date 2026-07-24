@@ -17,7 +17,7 @@ from PyQt5.QtCore import QUrl, QSettings, QTimer
 from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QFileDialog, QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QPushButton, QSizePolicy, QFrame, QMessageBox, QAction,
+    QLabel, QPushButton, QSizePolicy, QFrame, QMessageBox, QAction, QDialog,
 )
 from PyQt5.QtWebEngineWidgets import QWebEngineView
 
@@ -353,14 +353,16 @@ class MainWindow(QMainWindow):
             )
             return
 
-        # ── 步骤2: 大模型降采样 ──
+        # ── 步骤2: 大模型降采样 (仅 STL) ──
         cache_dir = os.path.join(root, "src", "_model_cache")
         os.makedirs(cache_dir, exist_ok=True)
         cache_path = os.path.join(cache_dir, model_name)
 
-        raw, decimated, original_faces, actual_faces = decimate_stl(
-            raw, log_cb=lambda m: self._sl.setText(m)
-        )
+        decimated = False; original_faces = 0; actual_faces = 0
+        if self._model_format == 'stl':
+            raw, decimated, original_faces, actual_faces = decimate_stl(
+                raw, log_cb=lambda m: self._sl.setText(m)
+            )
         if decimated:
             msg = f"降采样成功: {original_faces}→{actual_faces}面"
             self._sl.setText(msg)
