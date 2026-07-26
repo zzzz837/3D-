@@ -127,7 +127,7 @@ class MainWindow(QMainWindow):
         self.webview.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         root = find_root()
-        html_path = os.path.join(root, "src", "3D编辑器_Shader效果演示.html")
+        html_path = os.path.join(root, "src", "3D编辑器原型.html")
         if not os.path.isfile(html_path):
             QMessageBox.critical(self, "错误", f"找不到:\n{html_path}")
             return
@@ -139,7 +139,7 @@ class MainWindow(QMainWindow):
         port = start_server(root)
 
         import urllib.parse as _up
-        url_path = _up.quote("src/3D编辑器_Shader效果演示.html")
+        url_path = _up.quote("src/3D编辑器原型.html")
         url = f"http://127.0.0.1:{port}/{url_path}"
 
         self._load_retries = 0
@@ -224,6 +224,7 @@ class MainWindow(QMainWindow):
                 "pressure": c.get("pressure", 0),
             })
 
+        render_config = data.get("renderConfig", {})
         project = {
             "version": "2.1",
             "schema_version": 1,
@@ -241,6 +242,8 @@ class MainWindow(QMainWindow):
             },
             "cells": cells_json,
         }
+        if render_config:
+            project["renderConfig"] = render_config
         try:
             if path.endswith('.3dlp'):
                 self._save_package(path, project)

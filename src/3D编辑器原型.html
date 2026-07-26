@@ -98,7 +98,11 @@ body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:#1e1e1e;colo
     <div class="group" id="fieldSettings" style="display:none"><h3 style="color:#4ec9b0;font-size:12px;margin-bottom:6px">力场设置</h3>
       <div class="field"><label>模式</label><select id="fieldModeSelect" style="flex:1;background:#1e1e1e;border:1px solid #555;color:#ddd;padding:4px 8px;border-radius:3px;font-size:12px"><option value="manual">手动压力</option><option value="simulated">模拟压力</option></select></div>
       <div class="field" id="presetRow" style="display:none"><label>模拟预设</label><select id="simPresetSelect" style="flex:1;background:#1e1e1e;border:1px solid #555;color:#ddd;padding:4px 8px;border-radius:3px;font-size:12px"><option value="wave">波浪 Wave</option><option value="uniform">均匀 Uniform</option><option value="pulse">脉冲 Pulse</option></select></div>
-      <div class="field"><label>力场半径</label><input type="range" min="20" max="200" step="10" value="60" id="fieldRadiusSlider" style="flex:1;height:16px"><span class="unit" id="fieldRadiusLabel">60mm</span></div></div>
+      <div class="field"><label>力场半径</label><input type="range" min="20" max="200" step="10" value="60" id="fieldRadiusSlider" style="flex:1;height:16px"><span class="unit" id="fieldRadiusLabel">60mm</span></div>
+            <div class="field"><label>隆起高度</label><input type="range" min="0" max="200" step="1" value="100" id="bulgeHeightSlider" style="flex:1;height:16px"><span class="unit" id="bulgeHeightLabel">100%</span></div>
+            <div class="field"><label>点大小</label><input type="range" min="1" max="200" step="1" value="80" id="pointSizeSlider" style="flex:1;height:16px"><span class="unit" id="pointSizeLabel">0.08</span></div>
+            <div id="jetColorbar" style="width:100%;height:16px;border-radius:3px;margin-top:4px;background:linear-gradient(to right,#00008F,#0000FF,#00FFFF,#00FF00,#FFFF00,#FFA500,#FF0000)"></div>
+            <div style="display:flex;justify-content:space-between;font-size:9px;color:#888;padding:0 2px"><span>0.00</span><span>1.00</span></div></div>
   </div>
 </div>
 <div class="channel-table"><table><thead><tr><th>ID</th><th>落地</th><th>X</th><th>Y</th><th>Z</th><th>面积</th><th>半径</th></tr></thead><tbody id="channelBody"></tbody></table></div>
@@ -253,6 +257,82 @@ function computeMaxEdgeMM(geo) {
     maxE = Math.max(maxE, edge(a, b), edge(b, c), edge(c, a));
   }
   return u2mm(maxE);
+}
+
+// ── 自适应细分决策 ──
+function determineSubdivLevel(geo) {
+  const maxEdgeMM = computeMaxEdgeMM(geo);
+  const targetEdge = Math.max(FIELD_R / 4, 1);
+  let level = 0;
+  if (maxEdgeMM > targetEdge * 2.5) level = 2;
+  else if (maxEdgeMM > targetEdge * 1.2) level = 1;
+  const nVerts = geo.attributes.position.count;
+  const maxVerts = 200000;
+  while (level > 0 && nVerts * Math.pow(4, level) > maxVerts) level--;
+  console.log('[subdiv] adaptive level='+level+' maxEdge='+maxEdgeMM.toFixed(1)+'mm target='+targetEdge.toFixed(1)+'mm verts='+nVerts);
+  return level;
+}
+
+// ── Laplacian 平滑 (法线加权, 防跨尖角扩散) ──
+function laplacianSmoothGeometry(geo, iterations) {
+  if (!geo.index) { console.warn('[laplacian] needs indexed geometry'); return geo; }
+  const pos = geo.attributes.position;
+  const nVerts = pos.count;
+  if (!geo.attributes.normal) geo.computeVertexNormals();
+  const norms = geo.attributes.normal;
+  const adj = buildVertexAdjacency(geo, nVerts);
+  const adjOff = adj[0], adjNbr = adj[1];
+  const lambda = 0.5;
+  const pa = pos.array, na = norms.array;
+  for (let iter = 0; iter < iterations; iter++) {
+    const src = new Float32Array(pa);
+    for (let i = 0; i < nVerts; i++) {
+      const s = adjOff[i], e = adjOff[i + 1];
+      if (s === e) continue;
+      const i3 = i * 3, vx = src[i3], vy = src[i3 + 1], vz = src[i3 + 2];
+      const nix = na[i3], niy = na[i3 + 1], niz = na[i3 + 2];
+      let wSum = 0, dxSum = 0, dySum = 0, dzSum = 0;
+      for (let j = s; j < e; j++) {
+        const nb = adjNbr[j], n3 = nb * 3;
+        const dot = nix * na[n3] + niy * na[n3 + 1] + niz * na[n3 + 2];
+        const w = Math.max(0, dot);
+        if (w <= 1e-9) continue;
+        wSum += w;
+        dxSum += w * (src[n3] - vx);
+        dySum += w * (src[n3 + 1] - vy);
+        dzSum += w * (src[n3 + 2] - vz);
+      }
+      if (wSum > 1e-9) {
+        pa[i3] = vx + lambda * dxSum / wSum;
+        pa[i3 + 1] = vy + lambda * dySum / wSum;
+        pa[i3 + 2] = vz + lambda * dzSum / wSum;
+      }
+    }
+  }
+  pos.needsUpdate = true;
+  geo.computeVertexNormals();
+  geo.computeBoundingSphere();
+  console.log('[laplacian] smoothed '+iterations+'x, '+nVerts+' verts');
+  return geo;
+}
+
+// ── 构建密集网格 (细分 + 平滑) ──
+function buildDenseGeometry(geo, level) {
+  if (level <= 0) {
+    const copy = geo.clone();
+    if (!copy.attributes.normal) copy.computeVertexNormals();
+    console.log('[dense] no subdivision needed, verts='+copy.attributes.position.count);
+    return copy;
+  }
+  const t0 = performance.now();
+  let dense = tessellateGeometry(geo.clone(), level, 200000);
+  if (!dense.index) {
+    // tessellateGeometry may return non-indexed if input had no index
+    dense = BufferGeometryUtils.mergeVertices(dense, 1e-5);
+  }
+  dense = laplacianSmoothGeometry(dense, level);
+  console.log('[dense] built level='+level+' verts='+dense.attributes.position.count+' time='+(performance.now()-t0).toFixed(0)+'ms');
+  return dense;
 }
 
 function buildSurfaceIndex(){if(!M)return;SURF=[];const triCount=M.geometry.index?M.geometry.index.count/3:M.geometry.attributes.position.count/3,stride=Math.max(1,Math.ceil(triCount/12000));const N=new T.Vector3(),A=new T.Vector3(),B=new T.Vector3(),C=new T.Vector3();for(let t=0,off=0;t<triCount;t++,off+=3){if(t%stride!==0)continue;let i0,i1,i2;if(M.geometry.index){i0=M.geometry.index.getX(off);i1=M.geometry.index.getX(off+1);i2=M.geometry.index.getX(off+2)}else{i0=off;i1=off+1;i2=off+2}A.fromBufferAttribute(M.geometry.attributes.position,i0).applyMatrix4(M.matrixWorld);B.fromBufferAttribute(M.geometry.attributes.position,i1).applyMatrix4(M.matrixWorld);C.fromBufferAttribute(M.geometry.attributes.position,i2).applyMatrix4(M.matrixWorld);N.subVectors(B,A).cross(new T.Vector3().subVectors(C,A)).normalize();const ctr=new T.Vector3().addVectors(A,B).add(C).divideScalar(3);SURF.push({a:A.clone(),b:B.clone(),c:C.clone(),center:ctr,normal:N.clone()})}}
@@ -774,15 +854,27 @@ let SIMULATE_ON=!1;
 let _fieldVisualBoost=1,_fieldSmoothIters=1,_fieldLow=0.04,_fieldMid=0.25;
 const MODEL_GREY=new T.Color(0x7f8998),SIM_INTERVAL_MS=40;
 
+// ── Method A+B 新管线全局变量 ──
+let _denseGeo=null,_subdivLevel=0,_bulgeMax=0;
+let _bulgeHeight=0,_pointSize=0.08,_ptScale=300;
+let _forceThreshold=0.03;  // 力场可见阈值 (参考预览: indenter=0.03, chair=0.12, box=0.02)
+let _pointsMesh=null,_subsample=1,_nPointVerts=0;  // 点云子采样
+let _denseScalars=null,_denseCovered=null,_denseCacheOk=!1;
+let _pointGeoBuilt=!1;
+
+// ── 预览线框 ──
+let _previewWire=null;
+
 // ── 性能缓存 ──
 let _vpos=null,_ioff=null,_icell=null,_iwgt=null,_cv=null,_cacheOk=!1,_cacheFR=0;
 function invalidateFieldCache(){
-  if(_cacheOk&&M&&M.geometry&&M.geometry.attributes.color){
-    const col=M.geometry.attributes.color,n=col.count;
-    for(let i=0;i<n;i++)col.setXYZ(i,MODEL_GREY.r,MODEL_GREY.g,MODEL_GREY.b);
-    col.needsUpdate=!0;
-  }
-  _cacheOk=!1;}
+  _cacheOk=!1;_denseCacheOk=!1;
+  // 清理旧的点云 (模型不动，点云通过shader沿法线浮动)
+  if(_pointsMesh){RT.remove(_pointsMesh);if(_pointsMesh.geometry)_pointsMesh.geometry.dispose();if(_pointsMesh.material)_pointsMesh.material.dispose();_pointsMesh=null}
+  _pointGeoBuilt=!1;
+  // 清理预览线框
+  if(_previewWire){RT.remove(_previewWire);if(_previewWire.geometry)_previewWire.geometry.dispose();if(_previewWire.material)_previewWire.material.dispose();_previewWire=null}
+}
 
 function wendlandPhi(r){return r>=1?0:Math.pow(1-r,4)*(4*r+1)}
 function jetColor(t){t=Math.max(0,Math.min(1,t));let r,g,b;if(t<.125){const s=t/.125;r=0;g=0;b=128+127*s}
@@ -791,6 +883,33 @@ else if(t<.625){const s=(t-.375)/.25;r=255*s;g=255;b=255*(1-s)}
 else if(t<.875){const s=(t-.625)/.25;r=255;g=255*(1-s);b=0}
 else{const s=(t-.875)/.125;r=255*(1-s*.5);g=0;b=0}
 return new T.Color(r/255,g/255,b/255)}
+
+// Jet 色带 (设计文档定义: DeepBlue→Blue→Cyan→Green→Yellow→Orange→Red)
+function jetColorNew(t) {
+  t = Math.max(0, Math.min(1, t));
+  const stops = [0.0, 0.15, 0.30, 0.45, 0.55, 0.70, 1.0];
+  const colors = [
+    [0, 0, 143],     // DeepBlue  0.00
+    [0, 0, 255],     // Blue      0.15
+    [0, 255, 255],   // Cyan      0.30
+    [0, 255, 0],     // Green     0.45
+    [255, 255, 0],   // Yellow    0.55
+    [255, 165, 0],   // Orange    0.70
+    [255, 0, 0]      // Red       1.00
+  ];
+  let lo = 0;
+  for (let i = 0; i < stops.length - 1; i++) {
+    if (t >= stops[i] && t <= stops[i + 1]) { lo = i; break; }
+    if (i === stops.length - 2) lo = stops.length - 2;
+  }
+  const s = (t - stops[lo]) / (stops[lo + 1] - stops[lo] || 1e-9);
+  const c0 = colors[lo], c1 = colors[lo + 1];
+  return new T.Color(
+    (c0[0] + (c1[0] - c0[0]) * s) / 255,
+    (c0[1] + (c1[1] - c0[1]) * s) / 255,
+    (c0[2] + (c1[2] - c0[2]) * s) / 255
+  );
+}
 
 function getCellPressures(cells){
   const p={};cells.forEach(c=>{const v=parseFloat(c.pressure);p[c.id]=Number.isFinite(v)?v:0});return p;
@@ -899,26 +1018,9 @@ function buildVertexAdjacency(geo,n){
   return [off,nbr];
 }
 
-// ── 虚拟锚点 (不创建Mesh, 只参与标量场计算) ──
-function getVirtualAnchors(cells,cellPressures){
-  const anchors=[];
-  cells.forEach(c=>{
-    const p=cellPressures[c.id]||0;if(p<=0)return;
-    anchors.push({x:c.x,y:c.y,z:c.z,p,w:1.5}); // 中心锚点, 高权重
-    const r_cell=mm2u(c.r),n_ring=8;
-    for(let i=0;i<n_ring;i++){
-      const ang=2*Math.PI*i/n_ring;
-      const dx=Math.cos(ang)*r_cell,dy=Math.sin(ang)*r_cell;
-      anchors.push({x:c.x+dx,y:c.y+dy,z:c.z,p:p*0.8,w:0.8}); // 外圈
-    }
-    for(let i=0;i<4;i++){
-      const ang=2*Math.PI*i/4;
-      const dx=Math.cos(ang)*r_cell*0.5,dy=Math.sin(ang)*r_cell*0.5;
-      anchors.push({x:c.x+dx,y:c.y+dy,z:c.z,p:p*0.45,w:0.5}); // 中间环
-    }
-  });
-  return anchors;
-}
+// ── 虚拟锚点已移除: 传感器读数是连续场的离散采样, 不是力源 ──
+// 不再为每个 Cell 伪造 13 个带递减压力的锚点 (1.0/0.8/0.45)
+// 直接用真实 Cell 位置和压力做 Wendland 加权插值重建连续场
 
 // ── smoothstep ──
 function smoothstep(edge0,edge1,x){const t=Math.max(0,Math.min(1,(x-edge0)/(edge1-edge0||1e-9)));return t*t*(3-2*t)}
@@ -952,120 +1054,338 @@ function smoothScalars(scalars,n,iterations){
   }
 }
 
-// ── 双层着色: 核心暖色斑 + 灰色过渡外圈 ──
-// 暖色单相: 灰→浅橙→橙→深红 (首色非灰, 确保可见)
-function applyFieldColors(cellPressures){
-  const t0=performance.now(),geo=M.geometry,col=geo.attributes.color,pos=geo.attributes.position,n=pos.count;
-  if(!geo.attributes.color)geo.setAttribute('color',new T.BufferAttribute(new Float32Array(n*3),3));
-  const scalars=new Float32Array(n);
-  const ncv=_cv.length;
-  for(let k=0;k<ncv;k++){const i=_cv[k],s=_ioff[i],e=_ioff[i+1];if(s===e)continue;let num=0,den=0;
-    for(let j=s;j<e;j++){const p=cellPressures[_icell[j]]||0,w=_iwgt[j];num+=p*w;den+=w}
-    if(den>1e-6)scalars[i]=Math.max(0,Math.min(1,(num/den)*_fieldVisualBoost))}
-  if(_adj&&_adj[0]&&_adj[0].length===n+1&&_fieldSmoothIters>0)smoothScalars(scalars,n,_fieldSmoothIters);
-  const low=_fieldLow,mid=_fieldMid;
-  for(let k=0;k<ncv;k++){
-    const i=_cv[k],s=scalars[i];if(s<=0)continue;
-    let cf=0;for(let j=_ioff[i];j<_ioff[i+1];j++)cf+=_iwgt[j];cf=Math.min(1,cf);
-    if(cf<=0.008||s<low){col.setXYZ(i,MODEL_GREY.r,MODEL_GREY.g,MODEL_GREY.b);continue}
-    const heat=jetColor(Math.max(0,Math.min(1,s*0.48+cf*0.52)));
-    const softBand=smoothstep(low,mid,s);
-    const alpha=(0.18+0.62*softBand)*(0.35+0.65*cf);
-    col.setXYZ(
-      i,
-      MODEL_GREY.r+(heat.r-MODEL_GREY.r)*alpha,
-      MODEL_GREY.g+(heat.g-MODEL_GREY.g)*alpha,
-      MODEL_GREY.b+(heat.b-MODEL_GREY.b)*alpha
-    );
+// ══════════ Method A+B 新渲染管线 ══════════
+
+// ── 密集网格 Wendland 重建 (纯 Wendland: 只用真实 Cell 位置和压力) ──
+function reconstructOnDenseGeo(denseGeo, cells, cellPressures, fieldRadiusU) {
+  const t0 = performance.now();
+  const pos = denseGeo.attributes.position;
+  const nVerts = pos.count;
+  const scalars = new Float32Array(nVerts);
+  const coverage = new Float32Array(nVerts);
+  const covered = [];
+  // 构建 Cell 数据数组: {x,y,z,p,nx,ny,nz} — p 为真实传感器压力值
+  const cellData = cells.map(c => ({
+    x: c.x, y: c.y, z: c.z,
+    p: cellPressures[c.id] || 0,
+    nx: c.nx || 0, ny: c.ny || 0, nz: c.nz || 1
+  })).filter(c => c.p > 0);
+  if (!cellData.length) return { scalars, coverage, covered: new Uint32Array(0) };
+  buildSpatialBuckets(cellData, fieldRadiusU);
+  for (let i = 0; i < nVerts; i++) {
+    const lx = pos.getX(i), ly = pos.getY(i), lz = pos.getZ(i);
+    const nb = queryBucketCells(lx, ly, lz);
+    let num = 0, den = 0;
+    const vnx = denseGeo.attributes.normal ? denseGeo.attributes.normal.getX(i) : 0;
+    const vny = denseGeo.attributes.normal ? denseGeo.attributes.normal.getY(i) : 1;
+    const vnz = denseGeo.attributes.normal ? denseGeo.attributes.normal.getZ(i) : 0;
+    for (const c of nb) {
+      const dx = lx - c.x, dy = ly - c.y, dz = lz - c.z;
+      const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      if (d > fieldRadiusU) continue;
+      const r = d / fieldRadiusU;
+      const nd = vnx * c.nx + vny * c.ny + vnz * c.nz;
+      if (nd < 0.1) continue;
+      const w = wendlandPhi(r);
+      if (w <= 1e-8) continue;
+      num += c.p * w;
+      den += w;
+    }
+    if (den > 1e-6) {
+      scalars[i] = Math.max(0, Math.min(1, num / den));
+      coverage[i] = Math.min(1, den * 1.8);
+      if (scalars[i] > 1e-8) covered.push(i);
+    }
   }
-  col.needsUpdate=!0;M.material.vertexColors=!0;
-  return performance.now()-t0;
+  console.log('[reconstruct] dense verts=' + nVerts + ' cells=' + cellData.length + ' covered=' + covered.length + ' time=' + (performance.now() - t0).toFixed(0) + 'ms');
+  return { scalars: scalars, coverage: coverage, covered: new Uint32Array(covered) };
 }
 
-// ── 预览时Cell: 隐藏圆盘, 保留中心点和标签 ──
-function updateCellPreviewStyle(cellPressures){
-  O.forEach(g=>{
-    const id=g.userData.id,cp=Math.max(0,Math.min(1,cellPressures[id]||0));
-    g.children.forEach(ch=>{
-      if(ch.userData&&ch.userData.pch){ch.visible=!PREVIEW;if(!PREVIEW){ch.material.opacity=.72;ch.material.color.set(0x4ec9b0)}}
-      if(ch.userData&&ch.userData.center){ch.visible=!0;ch.material.opacity=PREVIEW?.82:.95;ch.material.color.set(PREVIEW?jetColor(cp):(V[id]>1?0xff4444:0x4ec9b0))}
-      if(ch.userData&&ch.userData.isLabel){ch.visible=!0;ch.material.opacity=PREVIEW?.9:.55}
+// ── 构建力场点云 (ShaderMaterial, GPU法线位移, 子采样, 一次创建, 逐帧更新属性) ──
+// 参考preview做法: 点云只使用子采样后的顶点, 避免全部顶点导致"隆起层"视觉效果
+function buildPointCloud(denseGeo) {
+  const nTotal = denseGeo.attributes.position.count;
+  if (!denseGeo.attributes.normal) denseGeo.computeVertexNormals();
+  
+  // 子采样率: 根据顶点数动态决定 (参考preview: indenter=1, chair=3, box=1)
+  if (nTotal <= 2000) _subsample = 1;
+  else if (nTotal <= 50000) _subsample = 2;
+  else _subsample = 3;
+  
+  _nPointVerts = Math.floor(nTotal / _subsample);
+  const posSrc = denseGeo.attributes.position.array;
+  const normSrc = denseGeo.attributes.normal.array;
+  
+  const ptPos = new Float32Array(_nPointVerts * 3);
+  const ptNorm = new Float32Array(_nPointVerts * 3);
+  for (let i = 0; i < _nPointVerts; i++) {
+    const si = i * _subsample;
+    ptPos[i * 3] = posSrc[si * 3];
+    ptPos[i * 3 + 1] = posSrc[si * 3 + 1];
+    ptPos[i * 3 + 2] = posSrc[si * 3 + 2];
+    ptNorm[i * 3] = normSrc[si * 3];
+    ptNorm[i * 3 + 1] = normSrc[si * 3 + 1];
+    ptNorm[i * 3 + 2] = normSrc[si * 3 + 2];
+  }
+  
+  const ptGeo = new T.BufferGeometry();
+  ptGeo.setAttribute('position', new T.BufferAttribute(ptPos, 3));
+  ptGeo.setAttribute('aNormal', new T.BufferAttribute(ptNorm, 3));
+  ptGeo.setAttribute('aField', new T.BufferAttribute(new Float32Array(_nPointVerts), 1));
+  ptGeo.setAttribute('aColor', new T.BufferAttribute(new Float32Array(_nPointVerts * 3), 3));
+  ptGeo.setAttribute('alpha', new T.BufferAttribute(new Float32Array(_nPointVerts), 1));
+  
+  const mat = new T.ShaderMaterial({
+    uniforms: {
+      uPointSize: { value: _pointSize },
+      uBulgeHeight: { value: _bulgeHeight },
+      uPtScale: { value: _ptScale }
+    },
+    vertexShader: `
+      attribute float alpha;
+      attribute vec3 aColor;
+      attribute float aField;
+      attribute vec3 aNormal;
+      varying float vAlpha;
+      varying vec3 vColor;
+      uniform float uPointSize;
+      uniform float uBulgeHeight;
+      uniform float uPtScale;
+      void main() {
+        vColor = aColor;
+        vAlpha = alpha;
+        vec3 displaced = position + aNormal * aField * uBulgeHeight;
+        vec4 mvPosition = modelViewMatrix * vec4(displaced, 1.0);
+        gl_PointSize = uPointSize * (uPtScale / -mvPosition.z);
+        gl_Position = projectionMatrix * mvPosition;
+      }`,
+    fragmentShader: `
+      varying float vAlpha;
+      varying vec3 vColor;
+      void main() {
+        if (vAlpha < 0.01) discard;
+        vec2 c = 2.0 * gl_PointCoord - 1.0;
+        if (dot(c, c) > 1.0) discard;
+        gl_FragColor = vec4(vColor, vAlpha);
+      }`,
+    transparent: true,
+    depthWrite: false
+  });
+  console.log('[points] subsample=' + _subsample + ' pts=' + _nPointVerts + '/' + nTotal + ' size=' + _pointSize.toFixed(2) + ' ptScale=' + _ptScale);
+  return new T.Points(ptGeo, mat);
+}
+
+// ── 逐帧更新点云属性 (颜色/透明度/力场值, shader自动处理位移) ──
+// 参考preview: 子采样映射 + 覆盖度混合灰色 + 力场阈值过滤
+const MODEL_GREY_ARR = [MODEL_GREY.r, MODEL_GREY.g, MODEL_GREY.b];
+
+function blendWithGrey(c, coverage) {
+  // 覆盖度混合: 低覆盖度→偏灰, 高覆盖度→鲜艳热力色
+  const cf = Math.min(coverage * 1.8, 1.0);
+  return [
+    MODEL_GREY_ARR[0] + (c[0] - MODEL_GREY_ARR[0]) * cf,
+    MODEL_GREY_ARR[1] + (c[1] - MODEL_GREY_ARR[1]) * cf,
+    MODEL_GREY_ARR[2] + (c[2] - MODEL_GREY_ARR[2]) * cf
+  ];
+}
+
+function updatePointCloudAttributes(scalars, coverage) {
+  if (!_pointsMesh || !_pointsMesh.geometry) return;
+  const geo = _pointsMesh.geometry;
+  const aField = geo.attributes.aField.array;
+  const aColor = geo.attributes.aColor.array;
+  const alpha = geo.attributes.alpha.array;
+  
+  // 全部点始终可见: 空间密度一致, 通过高度(aField→shader位移)和颜色(jet色带)展示力场
+  // 不再使用阈值过滤和灰色混合 — 消除"半球喷出"、"密度不均"、"灰色点"三个问题
+  for (let pi = 0; pi < _nPointVerts; pi++) {
+    const vi = pi * _subsample;
+    const s = scalars[vi] || 0;
+    aField[pi] = s;           // 力场值 → shader 沿法线位移 (0=平地, 1=最高)
+    alpha[pi] = 1.0;           // 全部可见: 统一密度, 无空洞
+    const c = jetColorNew(s);  // 直接 Jet 色, 不混合灰色
+    aColor[pi * 3] = c.r;
+    aColor[pi * 3 + 1] = c.g;
+    aColor[pi * 3 + 2] = c.b;
+  }
+  geo.attributes.aField.needsUpdate = true;
+  geo.attributes.aColor.needsUpdate = true;
+  geo.attributes.alpha.needsUpdate = true;
+}
+
+// ── 预览时Cell标记: 用Jet色带着色中心点 ──
+function updateCellPreviewStyle(cellPressures) {
+  O.forEach(g => {
+    const id = g.userData.id, cp = Math.max(0, Math.min(1, cellPressures[id] || 0));
+    g.children.forEach(ch => {
+      if (ch.userData && ch.userData.pch) { ch.visible = !PREVIEW; if (!PREVIEW) { ch.material.opacity = .72; ch.material.color.set(0x4ec9b0) } }
+      if (ch.userData && ch.userData.center) { ch.visible = !0; ch.material.opacity = PREVIEW ? .82 : .95; ch.material.color.set(PREVIEW ? jetColorNew(cp) : (V[id] > 1 ? 0xff4444 : 0x4ec9b0)) }
+      if (ch.userData && ch.userData.isLabel) { ch.visible = !0; ch.material.opacity = PREVIEW ? .9 : .55 }
     });
-    const ed=g.children.find(ch=>ch.isLine);if(ed){ed.visible=!PREVIEW;if(!PREVIEW)ed.material.opacity=.55}
+    const ed = g.children.find(ch => ch.isLine); if (ed) { ed.visible = !PREVIEW; if (!PREVIEW) ed.material.opacity = .55 }
   });
 }
 
-// ── 主入口 ──
-function updateHeatmap(){
-  if(!PREVIEW||!M)return;
-  const cells=Object.values(C);if(!cells.length)return;
-  
-  const cellPressures=getCellPressures(cells);
-  const activeCells=cells.filter(c=>cellPressures[c.id]!==undefined);
-  if(!activeCells.length){msg('请在Cell属性面板中输入压力数值','w');return}
-  const maxCellR=Math.max(...activeCells.map(c=>c.r||radius),radius);
-  const effectiveFieldR=Math.max(FIELD_R,maxCellR*1.2);
-  const fieldRadiusU=mm2u(effectiveFieldR);
-  const smallRadiusRatio=Math.max(0,Math.min(3,FIELD_R/Math.max(maxCellR,1e-6)));
-  _fieldSmoothIters=smallRadiusRatio<1.4?2:(smallRadiusRatio<2.0?1:1);
-  _fieldVisualBoost=smallRadiusRatio<1.4?1.18:(smallRadiusRatio<2.0?1.10:1.0);
-  _fieldLow=smallRadiusRatio<1.4?0.02:(smallRadiusRatio<2.0?0.03:0.04);
-  _fieldMid=smallRadiusRatio<1.4?0.20:(smallRadiusRatio<2.0?0.22:0.25);
-  // 缓存失效时重建
-  if(!_cacheOk||_cacheFR!==fieldRadiusU){rebuildFieldCache(activeCells,fieldRadiusU);updateHeatmap._lastKey=null}
-  const pkey=JSON.stringify({p:cellPressures,r:fieldRadiusU,b:_fieldVisualBoost,s:_fieldSmoothIters,l:_fieldLow,m:_fieldMid});
-  if(pkey===updateHeatmap._lastKey)return;
-  updateHeatmap._lastKey=pkey;
-  const ms=applyFieldColors(cellPressures);
-  console.log('[perf] colors applied',ms.toFixed(0)+'ms','covered',Object.values(cellPressures).filter(v=>v!==0).length+'/'+activeCells.length+' cells','effectiveFieldR',effectiveFieldR,'boost',_fieldVisualBoost,'smooth',_fieldSmoothIters,'low',_fieldLow,'mid',_fieldMid);
+let _denseSourceGeo = null;  // 跟踪模型几何是否变更
+
+// ── 主入口 (Method A+B: 灰色模型不动 + 点云shader法线浮动) ──
+function updateHeatmap() {
+  if (!PREVIEW || !M) return;
+  const cells = Object.values(C);
+  if (!cells.length) return;
+
+  const cellPressures = getCellPressures(cells);
+  const activeCells = cells.filter(c => cellPressures[c.id] !== undefined);
+  if (!activeCells.length) { msg('请在Cell属性面板中输入压力数值', 'w'); return; }
+
+  const maxCellR = Math.max(...activeCells.map(c => c.r || radius), radius);
+  // 纯 Wendland: 自动计算 Cell 间最近邻距离, R = max(FIELD_R, 3×最近邻间距)
+  // 保证相邻 Cell 影响区充分重叠, 实现平滑插值 (而非色斑)
+  let nnDistU = Infinity;
+  for (let i = 0; i < activeCells.length; i++) {
+    for (let j = i + 1; j < activeCells.length; j++) {
+      const dx = activeCells[i].x - activeCells[j].x;
+      const dy = activeCells[i].y - activeCells[j].y;
+      const dz = activeCells[i].z - activeCells[j].z;
+      const d = Math.sqrt(dx*dx + dy*dy + dz*dz);
+      if (d > 0 && d < nnDistU) nnDistU = d;
+    }
+  }
+  const nnDistMM = nnDistU < Infinity ? u2mm(nnDistU) : 0;
+  const effectiveFieldR = Math.max(FIELD_R, maxCellR * 1.2, nnDistMM * 3);
+  const fieldRadiusU = mm2u(effectiveFieldR);
+
+  // 模型变更时重建密集网格 + 点云几何
+  if (!_denseGeo || _denseSourceGeo !== M.geometry) {
+    _denseSourceGeo = M.geometry;
+    _subdivLevel = determineSubdivLevel(M.geometry);
+    if (_denseGeo) _denseGeo.dispose();
+    _denseGeo = buildDenseGeometry(M.geometry, _subdivLevel);
+    const b = new T.Box3().setFromObject(M);
+    const diag = b.getSize(new T.Vector3()).length();
+    _bulgeMax = diag * 0.04;
+    _bulgeHeight = (parseInt(D('bulgeHeightSlider').value) / 100) * _bulgeMax;
+    // 动态计算 ptScale (参考preview, 基于模型大小)
+    _ptScale = Math.round(300 + diag * 50);
+    // 动态力场阈值 (小模型低阈值, 大模型高阈值)
+    _forceThreshold = diag < 2 ? 0.02 : (diag < 10 ? 0.03 : 0.12);
+    _denseCacheOk = false;
+    _pointGeoBuilt = false;
+    // 清理旧线框
+    if (_previewWire) { RT.remove(_previewWire); if (_previewWire.geometry) _previewWire.geometry.dispose(); if (_previewWire.material) _previewWire.material.dispose(); _previewWire = null; }
+  }
+
+  if (!_denseGeo.attributes.normal) _denseGeo.computeVertexNormals();
+
+  // 首次进入预览: 创建点云 (子采样, shader控制可见性)
+  if (!_pointGeoBuilt) {
+    if (_pointsMesh) { RT.remove(_pointsMesh); if (_pointsMesh.geometry) _pointsMesh.geometry.dispose(); if (_pointsMesh.material) _pointsMesh.material.dispose(); }
+    _pointsMesh = buildPointCloud(_denseGeo);
+    if (_pointsMesh) RT.add(_pointsMesh);
+    _pointGeoBuilt = true;
+    // 初始化shader uniforms
+    if (_pointsMesh && _pointsMesh.material.uniforms) {
+      _pointsMesh.material.uniforms.uBulgeHeight.value = _bulgeHeight;
+      _pointsMesh.material.uniforms.uPointSize.value = _pointSize;
+      _pointsMesh.material.uniforms.uPtScale.value = _ptScale;
+    }
+    // 预览线框叠加 (模型网格骨架, 参考preview)
+    if (!_previewWire && M.geometry) {
+      const wireGeo = new T.WireframeGeometry(M.geometry);
+      const wireMat = new T.MeshBasicMaterial({ color: 0x333344, transparent: true, opacity: 0.12 });
+      _previewWire = new T.LineSegments(wireGeo, wireMat);
+      RT.add(_previewWire);
+    }
+  }
+
+  // Wendland 重建
+  const pkey = JSON.stringify({ p: cellPressures, r: fieldRadiusU });
+  if (pkey === updateHeatmap._lastKey && _denseCacheOk) return;
+  updateHeatmap._lastKey = pkey;
+
+  const t0 = performance.now();
+  const result = reconstructOnDenseGeo(_denseGeo, activeCells, cellPressures, fieldRadiusU);
+  _denseScalars = result.scalars;
+  _denseCovered = result.covered;
+  _denseCacheOk = true;
+
+  // 更新点云属性 (shader自动法线位移, 传入覆盖度用于颜色混合)
+  updatePointCloudAttributes(_denseScalars, result.coverage);
+
+  updateCellPreviewStyle(cellPressures);
+  console.log('[perf] Method A+B updated ' + (performance.now() - t0).toFixed(0) + 'ms covered=' + _denseCovered.length + '/' + _denseGeo.attributes.position.count + ' pts=' + _nPointVerts + ' bulgeH=' + _bulgeHeight.toFixed(3) + ' ptSize=' + _pointSize.toFixed(2) + ' ptScale=' + _ptScale + ' thr=' + _forceThreshold);
 }
 
 // ── 模式切换 ──
-function setFieldMode(mode){
-  FIELD_MODE=mode;D('fieldModeSelect').value=mode;
-  if(mode==='simulated'){msg('模拟压力模式：Cell压力将自动动态变化')}
-  else{msg('手动压力模式：使用Cell属性面板中的压力值');updateHeatmap._lastKey=null;if(PREVIEW)updateHeatmap()}
+function setFieldMode(mode) {
+  FIELD_MODE = mode; D('fieldModeSelect').value = mode;
+  if (mode === 'simulated') { msg('模拟压力模式：Cell压力将自动动态变化') }
+  else { msg('手动压力模式：使用Cell属性面板中的压力值'); updateHeatmap._lastKey = null; if (PREVIEW) updateHeatmap() }
 }
 
-// ── 力场预览开关 ──
-function togglePreview(){
-  PREVIEW=!PREVIEW;const fs=D('fieldSettings');
-  if(PREVIEW){
-    fs.style.display='block';D('tbPreview3D').classList.add('active');
-    // 保存材质全量属性, 预览时仅开vertexColors, 不改透明度
-    if(M&&M.material){_origMaterial={
-      color:M.material.color.getHex(),opacity:M.material.opacity,
-      transparent:M.material.transparent,depthWrite:M.material.depthWrite,
-      depthTest:M.material.depthTest,side:M.material.side,
-      blending:M.material.blending,vertexColors:M.material.vertexColors
-    };
-    M.material.side=T.FrontSide;M.material.color.set(0xffffff);M.material.vertexColors=!0;
-    if(!M.geometry.attributes.color)M.geometry.setAttribute('color',new T.BufferAttribute(new Float32Array(M.geometry.attributes.position.count*3),3));
-    const fill=M.geometry.attributes.color;for(let i=0;i<fill.count;i++)fill.setXYZ(i,MODEL_GREY.r,MODEL_GREY.g,MODEL_GREY.b);fill.needsUpdate=!0;
-    if('needsUpdate'in M.material)M.material.needsUpdate=!0}
-    updateHeatmap._lastKey=null;updateHeatmap();
-    O.forEach(g=>g.children.forEach(ch=>{if(ch.userData&&ch.userData.isLabel)ch.material&&(ch.material.opacity=1)}));
-    if(FIELD_MODE==='simulated'&&SIMULATE_ON){clearInterval(SIM_INTERVAL);SIM_INTERVAL=setInterval(()=>{updateSimPressures();updateHeatmap._lastKey=null},SIM_INTERVAL_MS);clearInterval(HEAT_INTERVAL);HEAT_INTERVAL=setInterval(updateHeatmap,SIM_INTERVAL_MS*2)}
-    msg('力场预览 ON | R='+FIELD_R+'mm | mode='+FIELD_MODE)}
-  else{
-    fs.style.display='none';D('tbPreview3D').classList.remove('active');
-    clearInterval(HEAT_INTERVAL);HEAT_INTERVAL=null;clearInterval(SIM_INTERVAL);SIM_INTERVAL=null;
-    O.forEach(g=>g.children.forEach(ch=>{if(ch.userData&&ch.userData.isLabel){ch.material&&(ch.material.opacity=.55)}}));
-    if(M&&M.material){
-      M.material.vertexColors=false;
-      if(_origMaterial){
-        M.material.color.set(_origMaterial.color);M.material.opacity=_origMaterial.opacity;
-        M.material.transparent=_origMaterial.transparent;M.material.depthWrite=_origMaterial.depthWrite;
-        M.material.depthTest=_origMaterial.depthTest;M.material.side=_origMaterial.side;
-        M.material.blending=_origMaterial.blending;M.material.vertexColors=_origMaterial.vertexColors;
-        _origMaterial=null
-      }
-      M.material.emissive=new T.Color(0);M.material.emissiveIntensity=0;
-      if('needsUpdate'in M.material)M.material.needsUpdate=!0;
+// ── 力场预览开关 (Method A+B: 灰色模型 + 点云shader浮动) ──
+function togglePreview() {
+  PREVIEW = !PREVIEW; const fs = D('fieldSettings');
+  if (PREVIEW) {
+    fs.style.display = 'block'; D('tbPreview3D').classList.add('active');
+    if (M && M.material) {
+      _origMaterial = {
+        color: M.material.color.getHex(), opacity: M.material.opacity,
+        transparent: M.material.transparent, depthWrite: M.material.depthWrite,
+        depthTest: M.material.depthTest, side: M.material.side,
+        blending: M.material.blending, vertexColors: M.material.vertexColors,
+        flatShading: M.material.flatShading
+      };
+      // 灰色半透明模型基底 (模型本身不动, 参考preview: flatShading + 低光泽)
+      M.material.color.set(MODEL_GREY);
+      M.material.transparent = true;
+      M.material.opacity = 0.5;
+      M.material.depthWrite = true;
+      M.material.side = T.FrontSide;
+      M.material.vertexColors = false;
+      M.material.flatShading = true;
+      M.material.shininess = 3;
+      M.material.needsUpdate = true;
     }
-    O.forEach(g=>g.children.forEach(ch=>{if(ch.userData&&ch.userData.pch){ch.material.opacity=.72;ch.material.color.set(0x4ec9b0)}if(ch.userData&&ch.userData.center){ch.material.opacity=.95;ch.material.color.set(0x4ec9b0)}if(ch.isLine){ch.material.opacity=.55;ch.material.color.set(0xffffff)}}));
-    updateCellPreviewStyle({});HL();msg('退出力场预览')}
+    updateHeatmap._lastKey = null; updateHeatmap();
+    O.forEach(g => g.children.forEach(ch => { if (ch.userData && ch.userData.isLabel) ch.material && (ch.material.opacity = .9) }));
+    if (FIELD_MODE === 'simulated' && SIMULATE_ON) {
+      clearInterval(SIM_INTERVAL); SIM_INTERVAL = setInterval(() => { updateSimPressures(); updateHeatmap._lastKey = null }, SIM_INTERVAL_MS);
+      clearInterval(HEAT_INTERVAL); HEAT_INTERVAL = setInterval(updateHeatmap, SIM_INTERVAL_MS * 2);
+    }
+    msg('力场预览 ON | Method A+B | R=' + FIELD_R + 'mm | mode=' + FIELD_MODE);
+  } else {
+    fs.style.display = 'none'; D('tbPreview3D').classList.remove('active');
+    clearInterval(HEAT_INTERVAL); HEAT_INTERVAL = null; clearInterval(SIM_INTERVAL); SIM_INTERVAL = null;
+    // 移除点云 (模型本身不动, 无需恢复几何)
+    if (_pointsMesh) { RT.remove(_pointsMesh); if (_pointsMesh.geometry) _pointsMesh.geometry.dispose(); if (_pointsMesh.material) _pointsMesh.material.dispose(); _pointsMesh = null; }
+    _pointGeoBuilt = false;
+    // 移除预览线框
+    if (_previewWire) { RT.remove(_previewWire); if (_previewWire.geometry) _previewWire.geometry.dispose(); if (_previewWire.material) _previewWire.material.dispose(); _previewWire = null; }
+    // 恢复模型材质
+    O.forEach(g => g.children.forEach(ch => { if (ch.userData && ch.userData.isLabel) { ch.material && (ch.material.opacity = .55) } }));
+    if (M && M.material) {
+      M.material.vertexColors = false;
+      if (_origMaterial) {
+        M.material.color.set(_origMaterial.color); M.material.opacity = _origMaterial.opacity;
+        M.material.transparent = _origMaterial.transparent; M.material.depthWrite = _origMaterial.depthWrite;
+        M.material.depthTest = _origMaterial.depthTest; M.material.side = _origMaterial.side;
+        M.material.blending = _origMaterial.blending; M.material.vertexColors = _origMaterial.vertexColors;
+        if (_origMaterial.flatShading !== undefined) M.material.flatShading = _origMaterial.flatShading;
+        _origMaterial = null;
+      }
+      M.material.emissive = new T.Color(0); M.material.emissiveIntensity = 0;
+      M.material.needsUpdate = true;
+    }
+    O.forEach(g => g.children.forEach(ch => {
+      if (ch.userData && ch.userData.pch) { ch.material.opacity = .72; ch.material.color.set(0x4ec9b0) }
+      if (ch.userData && ch.userData.center) { ch.material.opacity = .95; ch.material.color.set(0x4ec9b0) }
+      if (ch.isLine) { ch.material.opacity = .55; ch.material.color.set(0xffffff) }
+    }));
+    updateCellPreviewStyle({}); HL(); msg('退出力场预览');
+  }
 }
+// ══════════════ END Method A+B 渲染管线 ══════════════
 
 // ── 模拟压力开关 ──
 function toggleSimulate(){
@@ -1085,6 +1405,26 @@ D('fieldModeSelect').onchange=()=>{const mode=D('fieldModeSelect').value;
   updateHeatmap._lastKey=null;if(PREVIEW)updateHeatmap()};
 
 D('fieldRadiusSlider').oninput=()=>{FIELD_R=parseInt(D('fieldRadiusSlider').value)||60;FIELD_R_USER_MODIFIED=true;D('fieldRadiusLabel').textContent=FIELD_R+'mm';invalidateFieldCache();updateHeatmap._lastKey=null;if(PREVIEW)updateHeatmap()};
+
+// ── 新增: 隆起高度 + 点大小滑块 (直接更新shader uniform, GPU即时反映) ──
+D('bulgeHeightSlider').oninput=()=>{
+  const pct=parseInt(D('bulgeHeightSlider').value)/100;
+  D('bulgeHeightLabel').textContent=D('bulgeHeightSlider').value+'%';
+  _bulgeHeight=pct*_bulgeMax;
+  // 直接更新shader uniform, 无需重建
+  if(_pointsMesh&&_pointsMesh.material.uniforms){
+    _pointsMesh.material.uniforms.uBulgeHeight.value=_bulgeHeight;
+  }
+};
+D('pointSizeSlider').oninput=()=>{
+  const pct=parseInt(D('pointSizeSlider').value)/100;
+  _pointSize=0.01+pct*0.19;
+  D('pointSizeLabel').textContent=_pointSize.toFixed(2);
+  // 直接更新shader uniform
+  if(_pointsMesh&&_pointsMesh.material.uniforms){
+    _pointsMesh.material.uniforms.uPointSize.value=_pointSize;
+  }
+};
 // ══════════════ END Wendland 力场重建 ══════════════
 // ══════════════ END Wendland 力场重建 ══════════════
 D('tbReset').onclick=()=>{if(!RT||!CT||!CA)return;const b=new T.Box3().setFromObject(RT),sz=b.getSize(new T.Vector3()),md=Math.max(sz.x,sz.y,sz.z);CT.target.set(0,0,0);CA.position.set(md*.55,-md*0.8,md*.55);CA.lookAt(0,0,0);CT.update()};
@@ -1192,7 +1532,7 @@ window.pyCommand=function(cmd,data){
       invalidateFieldCache();updateHeatmap._lastKey=null;CO();HL();refreshBasket();refreshTable();refreshProps();_notify()}
     else if(cmd==='focusCell'&&data.id>=0&&C[data.id]){F=data.id;const c=C[F];if(!CT||!CA)return;const p=localToWp(new T.Vector3(c.x,c.y,c.z));CT.target.copy(p);CA.position.set(p.x,p.y-80,p.z+50);HL();_notify()}
     else if(cmd==='getAllCells'){const all=[];for(let i=0;i<MAX;i++){const c=C[i];all.push(c?{id:i,x:u2mm(c.x).toFixed(1),y:u2mm(c.y).toFixed(1),z:u2mm(c.z).toFixed(1),radius:c.r.toFixed(1),area:cellSurfaceArea(c).toFixed(1),overlap:V[i]||0}:null)}sendBridge('allCells',all)}
-    else if(cmd==='exportCells'){const cells=[];for(const c of Object.values(C))cells.push({id:c.id,center_mm:{x:+u2mm(c.x).toFixed(4),y:+u2mm(c.y).toFixed(4),z:+u2mm(c.z).toFixed(4)},normal:{x:+c.nx.toFixed(4),y:+c.ny.toFixed(4),z:+c.nz.toFixed(4)},radius_mm:c.r,rotation_deg:c.rot||0,label:c.label||'',pressure:c.pressure||0});sendBridge('exportCells',{cells:cells,total_points:MAX,unit_mm:unitMM,cell_radius:radius})}
+    else if(cmd==='exportCells'){const cells=[];for(const c of Object.values(C))cells.push({id:c.id,center_mm:{x:+u2mm(c.x).toFixed(4),y:+u2mm(c.y).toFixed(4),z:+u2mm(c.z).toFixed(4)},normal:{x:+c.nx.toFixed(4),y:+c.ny.toFixed(4),z:+c.nz.toFixed(4)},radius_mm:c.r,rotation_deg:c.rot||0,label:c.label||'',pressure:c.pressure||0});const rc={pointSize:parseInt(D('pointSizeSlider').value)||80,bulgePercent:parseInt(D('bulgeHeightSlider').value)||100,ptScale:_ptScale||300};sendBridge('exportCells',{cells:cells,total_points:MAX,unit_mm:unitMM,cell_radius:radius,renderConfig:rc})}
     else if(cmd==='importCells'&&Array.isArray(data)){snapShot();C={};data.forEach(c=>{if(c.id>=0&&c.id<MAX){const n=readCellNormal(c);C[c.id]={x:mm2u((c.center_mm||c.center_3d||{x:c.x||0}).x),y:mm2u((c.center_mm||c.center_3d||{y:c.y||0}).y),z:mm2u((c.center_mm||c.center_3d||{z:c.z||0}).z),nx:n.nx,ny:n.ny,nz:n.nz,r:c.radius_mm||c.radius||(c.width_mm||radius)/2,rot:c.rot||c.rotation_deg||0,id:c.id,label:c.label||'',pressure:parseFloat(c.pressure)||0}}});F=-1;invalidateFieldCache();updateHeatmap._lastKey=null;CO();RB();refreshBasket();refreshTable();refreshProps();_notify()}
     else if(cmd==='loadStl'&&(data.url||data.b64)){
       // Item2: 停止所有模拟循环 + 递增project sessionId

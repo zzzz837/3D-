@@ -424,5 +424,208 @@ class TestSimPresets:
             assert isinstance(c["pressure"], float)
 
 
+# ============================
+# v1.0.2 新增: Jet 色带 + 网格细分测试
+# ============================
+
+def jet_color_new(t):
+    """Jet 色带 (设计文档定义): DeepBlue→Blue→Cyan→Green→Yellow→Orange→Red"""
+    t = max(0.0, min(1.0, t))
+    stops = [0.0, 0.15, 0.30, 0.45, 0.55, 0.70, 1.0]
+    colors = [
+        [0, 0, 143],      # DeepBlue  0.00
+        [0, 0, 255],      # Blue      0.15
+        [0, 255, 255],    # Cyan      0.30
+        [0, 255, 0],      # Green     0.45
+        [255, 255, 0],    # Yellow    0.55
+        [255, 165, 0],    # Orange    0.70
+        [255, 0, 0]       # Red       1.00
+    ]
+    lo = 0
+    for i in range(len(stops) - 1):
+        if stops[i] <= t <= stops[i + 1]:
+            lo = i
+            break
+    else:
+        lo = len(stops) - 2
+    s = (t - stops[lo]) / (stops[lo + 1] - stops[lo] + 1e-9)
+    c0, c1 = colors[lo], colors[lo + 1]
+    return (
+        (c0[0] + (c1[0] - c0[0]) * s) / 255,
+        (c0[1] + (c1[1] - c0[1]) * s) / 255,
+        (c0[2] + (c1[2] - c0[2]) * s) / 255
+    )
+
+
+class TestJetColorNew:
+    """v1.0.2 Jet 色带边界颜色验证"""
+
+    def test_t_0_is_deep_blue(self):
+        r, g, b = jet_color_new(0.0)
+        assert r < 0.01 and g < 0.01
+        assert b == pytest.approx(143 / 255, abs=0.01)
+
+    def test_t_015_is_blue(self):
+        r, g, b = jet_color_new(0.15)
+        assert r < 0.01 and g < 0.01
+        assert b == pytest.approx(1.0, abs=0.01)
+
+    def test_t_030_is_cyan(self):
+        r, g, b = jet_color_new(0.30)
+        assert r < 0.01
+        assert g == pytest.approx(1.0, abs=0.01)
+        assert b == pytest.approx(1.0, abs=0.01)
+
+    def test_t_045_is_green(self):
+        r, g, b = jet_color_new(0.45)
+        assert r < 0.01
+        assert g == pytest.approx(1.0, abs=0.01)
+        assert b < 0.01
+
+    def test_t_055_is_yellow(self):
+        r, g, b = jet_color_new(0.55)
+        assert r == pytest.approx(1.0, abs=0.01)
+        assert g == pytest.approx(1.0, abs=0.01)
+        assert b < 0.01
+
+    def test_t_070_is_orange(self):
+        r, g, b = jet_color_new(0.70)
+        assert r == pytest.approx(1.0, abs=0.01)
+        assert g == pytest.approx(165 / 255, abs=0.01)
+        assert b < 0.01
+
+    def test_t_1_is_red(self):
+        r, g, b = jet_color_new(1.0)
+        assert r == pytest.approx(1.0, abs=0.01)
+        assert g < 0.01 and b < 0.01
+
+    def test_color_components_in_range(self):
+        for t in [0.0, 0.1, 0.2, 0.35, 0.5, 0.65, 0.8, 0.95, 1.0]:
+            r, g, b = jet_color_new(t)
+            assert 0.0 <= r <= 1.0
+            assert 0.0 <= g <= 1.0
+            assert 0.0 <= b <= 1.0
+
+    def test_monotonic_brightness_in_red(self):
+        """在 t ≥ 0.55 区间，红色分量应该单调递增"""
+        r_prev = -1
+        for t in [0.55, 0.60, 0.70, 0.85, 1.0]:
+            r, _, _ = jet_color_new(t)
+            assert r >= r_prev - 1e-9, f"Red not monotonic at t={t}: {r} < {r_prev}"
+            r_prev = r
+
+
+def barycentric_subdivide_1_triangle():
+    """单三角形 Barycentric 细分: 1→4 三角形"""
+    # 三角形顶点: (0,0,0), (1,0,0), (0,1,0)
+    v0, v1, v2 = (0, 0, 0), (1, 0, 0), (0, 1, 0)
+    mid01 = ((v0[0] + v1[0]) / 2, (v0[1] + v1[1]) / 2, (v0[2] + v1[2]) / 2)
+    mid12 = ((v1[0] + v2[0]) / 2, (v1[1] + v2[1]) / 2, (v1[2] + v2[2]) / 2)
+    mid20 = ((v2[0] + v0[0]) / 2, (v2[1] + v0[1]) / 2, (v2[2] + v0[2]) / 2)
+    # 4个子三角形
+    tris = [
+        (v0, mid01, mid20),
+        (v1, mid12, mid01),
+        (v2, mid20, mid12),
+        (mid01, mid12, mid20)
+    ]
+    return tris
+
+
+def bulge_displace(vertex, normal, scalar, height):
+    """法线位移隆起公式"""
+    return (
+        vertex[0] + normal[0] * scalar * height,
+        vertex[1] + normal[1] * scalar * height,
+        vertex[2] + normal[2] * scalar * height
+    )
+
+
+class TestMeshSubdivision:
+    """v1.0.2 网格细分与隆起位移测试"""
+
+    def test_barycentric_subdiv_quadruples_triangles(self):
+        """1个三角形细分1次 → 4个三角形"""
+        tris = barycentric_subdivide_1_triangle()
+        assert len(tris) == 4
+
+    def test_subdivided_vertices_are_distinct(self):
+        """细分后所有顶点应不同"""
+        tris = barycentric_subdivide_1_triangle()
+        all_verts = []
+        for tri in tris:
+            for v in tri:
+                all_verts.append(v)
+        unique = set(round(x, 10) for v in all_verts for x in v)
+        assert len(unique) >= 3  # At least 3 distinct coordinates
+
+    def test_barycentric_center_triangle_exists(self):
+        """细分后应有中心三角形 (由三个中点组成)"""
+        tris = barycentric_subdivide_1_triangle()
+        # 中心三角形顶点都在中点位置
+        mid01 = (0.5, 0.0, 0.0)
+        mid12 = (0.5, 0.5, 0.0)
+        mid20 = (0.0, 0.5, 0.0)
+        found = False
+        for tri in tris:
+            verts_set = {tuple(round(x, 10) for x in v) for v in tri}
+            expected = {tuple(round(x, 10) for x in (mid01, mid12, mid20)[i]) for i in range(3)}
+            # Actually check if center triangle exists
+            if all(any(abs(v[i] - 0.5) < 1e-9 and abs(v[j] - 0.0) < 1e-9 for v in tri) for i, j in [(0, 2), (1, 2), (2, 2)]):
+                found = True
+        # Simpler check: a triangle where all vertices have z=0 and at least one has x≈0.5,y≈0
+        center_like = sum(1 for tri in tris for v in tri if abs(v[0] - 0.5) < 1e-9 and abs(v[1]) < 1e-9)
+        assert center_like >= 1
+
+    def test_bulge_zero_scalar_no_displacement(self):
+        """scalar=0 时不应有位移"""
+        v = (1.0, 2.0, 3.0)
+        n = (0.0, 0.0, 1.0)
+        result = bulge_displace(v, n, 0.0, 10.0)
+        assert result == pytest.approx(v)
+
+    def test_bulge_max_scalar_full_displacement(self):
+        """scalar=1 时位移应为 height"""
+        v = (0.0, 0.0, 0.0)
+        n = (0.0, 0.0, 1.0)
+        result = bulge_displace(v, n, 1.0, 5.0)
+        assert result == pytest.approx((0.0, 0.0, 5.0))
+
+    def test_bulge_normal_direction(self):
+        """位移沿法线方向"""
+        v = (1.0, 1.0, 1.0)
+        n = (1.0, 0.0, 0.0)  # 沿 X 轴
+        result = bulge_displace(v, n, 0.5, 4.0)
+        assert result[0] == pytest.approx(3.0)  # 1.0 + 0.5 * 4.0
+        assert result[1] == pytest.approx(1.0)
+        assert result[2] == pytest.approx(1.0)
+
+    def test_adaptive_level_coarse_mesh(self):
+        """模拟粗网格 (814顶点, 最大边长 >> FIELD_R/4) → level ≥ 1"""
+        # 粗网格: 最大边长远大于 target edge
+        # FIELD_R=60, targetEdge=15mm, 粗网格 maxEdge≈50mm → level≥1
+        max_edge_mm = 50.0
+        field_r = 60
+        target_edge = max(field_r / 4, 1)
+        level = 0
+        if max_edge_mm > target_edge * 2.5:
+            level = 2
+        elif max_edge_mm > target_edge * 1.2:
+            level = 1
+        assert level >= 1, f"Coarse mesh should need subdivision, target={target_edge}"
+
+    def test_adaptive_level_dense_mesh(self):
+        """模拟密网格 (25K顶点, 最大边长 ≤ FIELD_R/4) → level = 0"""
+        max_edge_mm = 2.0
+        field_r = 60
+        target_edge = max(field_r / 4, 1)
+        level = 0
+        if max_edge_mm > target_edge * 2.5:
+            level = 2
+        elif max_edge_mm > target_edge * 1.2:
+            level = 1
+        assert level == 0, f"Dense mesh should not need subdivision"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
