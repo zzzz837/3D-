@@ -233,7 +233,7 @@ class MainWindow(QMainWindow):
             "created_at": self._project_info.get(
                 "created_at", datetime.now().isoformat()
             ),
-            "total_points": total or len(cells_json),
+            "total_points": total or self._project_info.get("channels", 0) or len(cells_json),
             "unit_mm": unit_mm,
             "cell_radius": cell_radius,
             "surface_model": {
@@ -488,6 +488,7 @@ class MainWindow(QMainWindow):
             "decimated": decimated,
             "original_faces": original_faces,
             "actual_faces": actual_faces,
+            "renderConfig": project_data.get("renderConfig", {}),
         })
         self._sl.setText(
             f"已打开: {Path(path).name} | "
